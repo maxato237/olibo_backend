@@ -1,3 +1,17 @@
-credentials/
+# Secrets
+token.pickle
+.env
+*.pickle
+*.json
+
+# Python
 venv/
 __pycache__/
+*.pyc
+
+# Credentials
+credentials/
+
+# OS
+.DS_Store
+Thumbs.db
