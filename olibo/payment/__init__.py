@@ -1,0 +1,1 @@
+from olibo.payment.model import Payment

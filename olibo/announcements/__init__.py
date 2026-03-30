@@ -1,0 +1,1 @@
+from olibo.announcements.model import News

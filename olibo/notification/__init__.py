@@ -1,0 +1,1 @@
+from olibo.notification.model import Notification

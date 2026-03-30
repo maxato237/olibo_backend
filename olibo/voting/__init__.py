@@ -1,0 +1,1 @@
+from olibo.voting.model import Vote, VoteResult
