@@ -154,6 +154,12 @@ def create_members(teams):
 
     positions = ['goalkeeper', 'defender', 'midfielder', 'forward']
     staff_roles = ['coach', 'assistant_coach', 'fitness_coach', 'doctor', 'physiotherapist', 'manager']
+    nationalities = [
+        ('CMR', 'Cameroun'), ('SEN', 'Sénégal'), ('CIV', "Côte d'Ivoire"),
+        ('GHA', 'Ghana'), ('NGA', 'Nigeria'), ('MLI', 'Mali'), ('GIN', 'Guinée'),
+    ]
+    feet = ['Droit', 'Gauche', 'Les deux']
+    categories = ['Senior', 'U23', 'U18', 'U15']
 
     all_members = []
     all_players = []
@@ -163,6 +169,7 @@ def create_members(teams):
         for p in range(11):          # 11 joueurs minimum
             jersey = p + 1
             seed   = f"team{team_obj.id}_player{p}"
+            nat_code, nat_label = random.choice(nationalities)
             member = TeamMember(
                 team_id=team_obj.id,
                 role='player',
@@ -177,7 +184,14 @@ def create_members(teams):
                 photo_public_id=None,
                 position=random.choice(positions),
                 jersey_number=jersey,
-                license_number=f'LIC-{team_obj.id:02d}-{p:04d}',
+                nationality=nat_code,
+                nationality_label=nat_label,
+                preferred_foot=random.choice(feet),
+                height_cm=random.randint(165, 195),
+                weight_kg=random.randint(60, 90),
+                gender=random.choice(['M', 'F']),
+                category=random.choice(categories),
+                is_captain=(p == 0),   # le joueur n°1 est capitaine
                 is_active=True,
             )
             db.session.add(member)
@@ -187,6 +201,7 @@ def create_members(teams):
         # --- Staff (4 membres) ---
         for s in range(4):
             seed = f"team{team_obj.id}_staff{s}"
+            nat_code, nat_label = random.choice(nationalities)
             member = TeamMember(
                 team_id=team_obj.id,
                 role=random.choice(staff_roles),
@@ -194,6 +209,9 @@ def create_members(teams):
                 last_name=fake.last_name(),
                 photo=player_photo_url(seed),
                 photo_public_id=None,
+                nationality=nat_code,
+                nationality_label=nat_label,
+                gender=random.choice(['M', 'F']),
                 is_active=True,
             )
             db.session.add(member)
@@ -204,19 +222,27 @@ def create_members(teams):
     return all_players   # on retourne uniquement les joueurs
 
 
-def create_licenses(players):
+def create_licenses(players, seasons=None):
     """Crée les licences pour les joueurs (TeamMember avec role='player')."""
     print("Creating licenses...")
     from olibo.license.model import License
 
+    active_season = next((s for s in seasons if s.is_active), None) if seasons else None
+    season_label = active_season.label if active_season else str(datetime.utcnow().year)
+    season_id = active_season.id if active_season else None
+
     licenses = []
     for member in players:
+        license_number = f"OL-{season_label}-{member.team_id:03d}-{member.id:03d}"
+        member.license_number = license_number
         lic = License(
-            member_id=member.id,                        # ← member_id, pas player_id
-            license_number=member.license_number,
+            member_id=member.id,
+            season_id=season_id,
+            license_number=license_number,
             issue_date=datetime.utcnow() - timedelta(days=365),
             expiry_date=datetime.utcnow() + timedelta(days=180),
             is_valid=True,
+            is_active=True,
             document_url=license_doc_url(member.id),
         )
         db.session.add(lic)
@@ -227,7 +253,40 @@ def create_licenses(players):
     return licenses
 
 
-def create_competitions():
+def create_seasons():
+    """Crée les saisons sportives."""
+    print("Creating seasons...")
+    from olibo.season.model import Season
+
+    seasons_data = [
+        {
+            'name': 'Saison 2024/25',
+            'label': '2024/25',
+            'start_date': date(2024, 8, 1),
+            'end_date': date(2025, 6, 30),
+            'is_active': False,
+        },
+        {
+            'name': 'Saison 2025/26',
+            'label': '2025/26',
+            'start_date': date(2025, 8, 1),
+            'end_date': date(2026, 6, 30),
+            'is_active': True,
+        },
+    ]
+
+    seasons = []
+    for s in seasons_data:
+        season = Season(**s)
+        db.session.add(season)
+        seasons.append(season)
+
+    db.session.commit()
+    print(f"✓ Created {len(seasons)} seasons")
+    return seasons
+
+
+def create_competitions(seasons=None):
     """Crée les compétitions."""
     print("Creating competitions...")
     from olibo.competition.model import Competition
@@ -237,12 +296,14 @@ def create_competitions():
 
     for i, name in enumerate(comp_names):
         start_date = datetime.utcnow() - timedelta(days=random.randint(60, 180))
+        season_ref = seasons[i % len(seasons)] if seasons else None
         competition = Competition(
             name=name,
             description=fake.sentence(),
             start_date=start_date,
             end_date=start_date + timedelta(days=120),
             season=2024 + i,
+            season_id=season_ref.id if season_ref else None,
             is_active=(i == 0),
         )
         db.session.add(competition)
@@ -664,8 +725,9 @@ def seed_database(app):
             teams         = create_teams(users)
             registrations = create_team_registrations(teams, users)
             players       = create_members(teams)          # retourne uniquement les joueurs
-            licenses      = create_licenses(players)
-            competitions  = create_competitions()
+            db_seasons    = create_seasons()
+            licenses      = create_licenses(players, seasons=db_seasons)
+            competitions  = create_competitions(seasons=db_seasons)
             matches       = create_matches(competitions, teams, users)
             match_sheets  = create_match_sheets(matches, users)
             events        = create_match_events(matches, players)
@@ -687,6 +749,7 @@ def seed_database(app):
             print(f"✓ Team registrations : {len(registrations)}")
             print(f"✓ Team members       : {sum(1 for _ in players)} players + staff")
             print(f"✓ Licenses           : {len(licenses)}")
+            print(f"✓ Seasons            : {len(db_seasons)}")
             print(f"✓ Competitions       : {len(competitions)}")
             print(f"✓ Matches            : {len(matches)}")
             print(f"✓ Match sheets       : {len(match_sheets)}")

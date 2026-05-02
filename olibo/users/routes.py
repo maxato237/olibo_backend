@@ -1,17 +1,13 @@
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 from olibo import db
+from olibo.common.enums import UserRole
+from olibo.common.helpers import get_authorized_user
 from olibo.users.model import User
 
 users = Blueprint('users', __name__)
-
-
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
-def get_authorized_user() -> User:
-    return User.query.get(get_jwt_identity())
 
 
 # ==========================================
@@ -25,7 +21,7 @@ def create_user():
     try:
         current_user = get_authorized_user()
 
-        if current_user.role not in ['super_admin', 'admin']:
+        if current_user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Only super admin or admin can create users'}), 403
 
         data = request.get_json()
@@ -36,8 +32,10 @@ def create_user():
         if User.query.filter_by(email=data['email']).first():
             return jsonify({'error': 'Email already exists'}), 409
 
-        # Le rôle peut arriver soit comme string soit comme objet { value: '...' }
         role = data['role']['value'] if isinstance(data['role'], dict) else data['role']
+        valid_roles = [r.value for r in UserRole]
+        if role not in valid_roles:
+            return jsonify({'error': f'Invalid role. Allowed: {valid_roles}'}), 400
 
         user = User(
             email=data['email'],
@@ -63,6 +61,13 @@ def create_user():
 @jwt_required()
 def get_all_users():
     try:
+        current_user = get_authorized_user()
+
+        if current_user.role not in ['super_admin', 'admin_competition', 'operator']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        page = request.args.get('page', 1, type=int)
+        per_page = min(request.args.get('per_page', 20, type=int), 100)
         role = request.args.get('role')
         is_active = request.args.get('is_active')
 
@@ -72,12 +77,15 @@ def get_all_users():
         if is_active is not None:
             query = query.filter_by(is_active=is_active.lower() == 'true')
 
-        all_users = query.all()
+        pagination = query.paginate(page=page, per_page=per_page, error_out=False)
 
         return jsonify({
             'message': 'Users retrieved successfully',
-            'total': len(all_users),
-            'users': [u.to_dict() for u in all_users],
+            'total': pagination.total,
+            'page': page,
+            'pages': pagination.pages,
+            'per_page': per_page,
+            'users': [u.to_dict() for u in pagination.items],
         }), 200
 
     except Exception as e:
@@ -88,6 +96,11 @@ def get_all_users():
 @jwt_required()
 def get_user(user_id):
     try:
+        current_user = get_authorized_user()
+
+        if current_user.id != user_id and current_user.role not in ['super_admin', 'admin_competition']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
         user = User.query.get(user_id)
 
         if not user:
@@ -125,9 +138,17 @@ def update_user(user_id):
                 return jsonify({'error': 'Email already exists'}), 409
             user.email = data['email']
         if 'password' in data:
+            if current_user.role != 'super_admin':
+                old_password = data.get('old_password')
+                if not old_password or not check_password_hash(user.password_hash, old_password):
+                    return jsonify({'error': 'Current password is required and must be correct'}), 400
             user.password_hash = generate_password_hash(data['password'])
         if 'role' in data and current_user.role == 'super_admin':
-            user.role = data['role']['value'] if isinstance(data['role'], dict) else data['role']
+            role_value = data['role']['value'] if isinstance(data['role'], dict) else data['role']
+            valid_roles = [r.value for r in UserRole]
+            if role_value not in valid_roles:
+                return jsonify({'error': f'Invalid role. Allowed: {valid_roles}'}), 400
+            user.role = role_value
         if 'is_active' in data and current_user.role == 'super_admin':
             user.is_active = data['is_active']
 
@@ -160,7 +181,7 @@ def delete_user(user_id):
         db.session.delete(user)
         db.session.commit()
 
-        return jsonify({'message': 'User deleted successfully'}), 200
+        return '', 204
 
     except Exception as e:
         db.session.rollback()

@@ -9,12 +9,14 @@ class Competition(db.Model):
     description = db.Column(db.Text)
     start_date = db.Column(db.DateTime, nullable=False)
     end_date = db.Column(db.DateTime, nullable=False)
-    season = db.Column(db.Integer, nullable=False)  # Numéro de saison
+    season = db.Column(db.Integer, nullable=False)  # Numéro de saison (rétrocompatibilité)
+    season_id = db.Column(db.Integer, db.ForeignKey('seasons.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
-    
+
     # Relations
+    season_obj = db.relationship('Season', back_populates='competitions')
     matches = db.relationship('Match', backref='competition', cascade='all, delete-orphan')
     rankings = db.relationship('Ranking', backref='competition', cascade='all, delete-orphan')
 
@@ -26,6 +28,7 @@ class Competition(db.Model):
             "start_date": self.start_date.isoformat(),
             "end_date": self.end_date.isoformat(),
             "season": self.season,
+            "season_id": self.season_id,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()

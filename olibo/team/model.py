@@ -71,13 +71,23 @@ class TeamMember(db.Model):
     jersey_number = db.Column(db.Integer, nullable=True)
     license_number = db.Column(db.String(100), unique=True, nullable=True)
 
+    # Champs optionnels (tous membres)
+    nationality = db.Column(db.String(3), nullable=True)
+    nationality_label = db.Column(db.String(100), nullable=True)
+    preferred_foot = db.Column(db.String(10), nullable=True)
+    height_cm = db.Column(db.Integer, nullable=True)
+    weight_kg = db.Column(db.Integer, nullable=True)
+    gender = db.Column(db.String(1), nullable=True)
+    category = db.Column(db.String(20), nullable=True)
+
+    is_captain = db.Column(db.Boolean, default=False, nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relations
-    license = db.relationship('License', backref='team_member', uselist=False, cascade='all, delete-orphan')
-    match_events = db.relationship('MatchEvent', backref='team_member', cascade='all, delete-orphan')
+    license = db.relationship('License', back_populates='member', uselist=False, cascade='all, delete-orphan')
+    match_events = db.relationship('MatchEvent', back_populates='member', cascade='all, delete-orphan')
 
     @property
     def is_player(self) -> bool:
@@ -93,11 +103,18 @@ class TeamMember(db.Model):
             "birth_date": self.birth_date.isoformat() if self.birth_date else None,
             "photo": self.photo,
             "photo_public_id": self.photo_public_id,
+            "nationality": self.nationality,
+            "nationality_label": self.nationality_label,
+            "preferred_foot": self.preferred_foot,
+            "height_cm": self.height_cm,
+            "weight_kg": self.weight_kg,
+            "gender": self.gender,
+            "category": self.category,
+            "is_captain": self.is_captain,
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
         }
-        # Inclure les champs joueur uniquement si pertinent
         if self.is_player:
             data.update({
                 "position": self.position,

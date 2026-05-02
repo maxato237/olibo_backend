@@ -1,20 +1,31 @@
 
 import cloudinary
 import cloudinary.uploader
+import os
+import yaml
 
+from datetime import timedelta
 from flask import Flask
 from flask_jwt_extended import JWTManager
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from flasgger import Swagger
 from olibo import config
-import os
+
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
+limiter = Limiter(
+    key_func=get_remote_address,
+    storage_uri="memory://",          # dev — remplacer par "redis://..." en production
+    default_limits=[]
+)
 
 def create_app(config_class=None):
-    
+
     app = Flask(__name__)
 
     CORS(app,
@@ -28,19 +39,18 @@ def create_app(config_class=None):
     )
 
     cloudinary.config(
-        cloud_name="dhupzvfe1",
-        api_key="679196967497286",
-        api_secret="aqkZ0jmkoM8Fgle15nZFMmZDpTY"
+        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.environ.get('CLOUDINARY_API_KEY'),
+        api_secret=os.environ.get('CLOUDINARY_API_SECRET')
     )
 
     # Configuration de la base de données
     app.config['SQLALCHEMY_DATABASE_URI'] = (
         f"postgresql://{config.Config.POSTGRESQL_CONNEXION['user']}:{config.Config.POSTGRESQL_CONNEXION['password']}"
         f"@{config.Config.POSTGRESQL_CONNEXION['host']}:{config.Config.POSTGRESQL_CONNEXION['port']}"
-        f"/{config.Config.POSTGRESQL_CONNEXION['database']}"
+        f"/{config.Config.POSTGRESQL_CONNEXION['database']}?sslmode=disable"
     )
 
-    # app.config['SQLALCHEMY_DATABASE_URI'] = config.Config.get_database_uri()
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Configuration JWT
@@ -51,7 +61,9 @@ def create_app(config_class=None):
     app.config['JWT_HEADER_TYPE'] = config.Config.JWT_HEADER_TYPE
     app.config['JWT_COOKIE_SECURE'] = False
     app.config['JWT_SESSION_COOKIE'] = False
- 
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
     if config_class:
         app.config.from_object(config_class)
     else:
@@ -60,6 +72,7 @@ def create_app(config_class=None):
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    limiter.init_app(app)
 
     with app.app_context():
         from olibo.announcements.routes import announcements
@@ -70,6 +83,7 @@ def create_app(config_class=None):
         from olibo.notification.routes import notification
         from olibo.payment.routes import payment
         from olibo.ranking.routes import ranking
+        from olibo.season.routes import seasons
         from olibo.team.routes import team
         from olibo.users.routes import users
         from olibo.voting.routes import voting
@@ -86,6 +100,7 @@ def create_app(config_class=None):
         app.register_blueprint(notification, url_prefix='/api/notification')
         app.register_blueprint(payment, url_prefix='/api/payment')
         app.register_blueprint(ranking, url_prefix='/api/ranking')
+        app.register_blueprint(seasons, url_prefix='/api/seasons')
         app.register_blueprint(team, url_prefix='/api/team')
         app.register_blueprint(users, url_prefix='/api/users')
         app.register_blueprint(voting, url_prefix='/api/voting')
@@ -93,7 +108,12 @@ def create_app(config_class=None):
         app.register_blueprint(license, url_prefix='/api/license')
         app.register_blueprint(enum, url_prefix='/api/enum')
         app.register_blueprint(article, url_prefix='/api/article')
-        
+
+        swagger_path = os.path.join(os.path.dirname(app.root_path), 'swagger.yaml')
+        with open(swagger_path, 'r', encoding='utf-8') as f:
+            swagger_template = yaml.safe_load(f)
+        Swagger(app, template=swagger_template)
+
         db.create_all()
-    
+
     return app

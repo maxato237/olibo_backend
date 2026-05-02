@@ -1,17 +1,13 @@
 import cloudinary.uploader
-import uuid
 import os
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
-from google.oauth2 import service_account
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 from olibo import db
 from olibo.common.enums import RegistrationStatus
+from olibo.common.helpers import get_authorized_user
 from olibo.team.model import TeamMember, Team, TeamRegistration
 from olibo.users.model import User
 
@@ -21,23 +17,18 @@ team = Blueprint('team', __name__)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
 MAX_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
-MIME_TYPES = {
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'png': 'image/png',
-}
+MIN_PLAYERS = 7
 
 
 def allowed_file(filename: str) -> bool:
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-def save_upload(file, subfolder: str) -> str | None:
+def save_upload(file, subfolder: str):
     if not file or file.filename == '':
         return None
     if not allowed_file(file.filename):
         return None
 
-    # Vérification taille
     file.seek(0, os.SEEK_END)
     size = file.tell()
     file.seek(0)
@@ -70,13 +61,11 @@ def delete_from_cloudinary(public_id):
     except Exception as e:
         current_app.logger.error(f"Cloudinary delete error: {e}")
 
-# --- helpers utilisateur / équipe ---
-def get_authorized_user() -> 'User':
-    return User.query.get(get_jwt_identity())
 
+def is_team_manager(user, t):
+    admin_roles = {'super_admin', 'admin_competition', 'operator'}
+    return t.captain_id == user.id or user.role in admin_roles
 
-def is_team_manager(user: 'User', t: 'Team') -> bool:
-    return t.captain_id == user.id or user.role == 'super_admin'
 
 # ==========================================
 # TEAM ROUTES
@@ -86,14 +75,17 @@ def is_team_manager(user: 'User', t: 'Team') -> bool:
 @team.route('', methods=['POST'])
 @jwt_required()
 def create_team():
-    # try:
+    try:
+        user = get_authorized_user()
+        if user.role not in ['super_admin', 'admin_competition', 'team_captain']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
         if 'name' not in request.form or not request.form['name'].strip():
             return jsonify({'error': 'Team name is required'}), 400
 
         if Team.query.filter_by(name=request.form['name']).first():
             return jsonify({'error': 'Team name already exists'}), 409
 
-        #LOGO
         logo = request.files.get('logo')
         logo_path = None
 
@@ -127,16 +119,13 @@ def create_team():
             'team': new_team.to_dict(),
         }), 201
 
-    # except Exception as e:
-    #     db.session.rollback()
-    #     print("ERROR:", e)
-    #     return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Create team error: {e}")
+        return jsonify({'error': 'Server error'}), 500
 
-def _add_members_from_form(form, files, team_id: int) -> list[str]:
-    """
-    Parse les champs membres depuis le FormData et les insère en base.
-    Retourne une liste d'erreurs (vide = succès).
-    """
+
+def _add_members_from_form(form, files, team_id: int):
     errors = []
     index = 0
 
@@ -152,11 +141,9 @@ def _add_members_from_form(form, files, team_id: int) -> list[str]:
             index += 1
             continue
 
-        # Photo
         photo_file = files.get(f'{prefix}[photo]')
         photo_path = save_upload(photo_file, 'members') if photo_file else None
 
-        # Date de naissance
         birth_date = None
         raw_date = form.get(f'{prefix}[birth_date]', '').strip()
         if raw_date:
@@ -165,12 +152,15 @@ def _add_members_from_form(form, files, team_id: int) -> list[str]:
             except ValueError:
                 errors.append(f"Membre {index} : format de date invalide (YYYY-MM-DD attendu).")
 
-        # ⚠️ Correction : on récupère "jersey" et non "jersey_number"
         jersey_raw = form.get(f'{prefix}[jersey]', '').strip()
         jersey_number = int(jersey_raw) if jersey_raw.isdigit() else None
 
-        # Position (seulement pour player)
         position = form.get(f'{prefix}[position]', '').strip() or None
+
+        height_raw = form.get(f'{prefix}[height_cm]', '').strip()
+        weight_raw = form.get(f'{prefix}[weight_kg]', '').strip()
+
+        is_captain_raw = form.get(f'{prefix}[is_captain]', 'false').lower() == 'true'
 
         member = TeamMember(
             team_id=team_id,
@@ -182,6 +172,14 @@ def _add_members_from_form(form, files, team_id: int) -> list[str]:
             photo_public_id=photo_path['public_id'] if photo_path else None,
             position=position if role == 'player' else None,
             jersey_number=jersey_number if role == 'player' else None,
+            nationality=form.get(f'{prefix}[nationality]', '').strip() or None,
+            nationality_label=form.get(f'{prefix}[nationality_label]', '').strip() or None,
+            preferred_foot=form.get(f'{prefix}[preferred_foot]', '').strip() or None,
+            height_cm=int(height_raw) if height_raw.isdigit() else None,
+            weight_kg=int(weight_raw) if weight_raw.isdigit() else None,
+            gender=form.get(f'{prefix}[gender]', '').strip() or None,
+            category=form.get(f'{prefix}[category]', '').strip() or None,
+            is_captain=is_captain_raw,
         )
 
         db.session.add(member)
@@ -189,17 +187,26 @@ def _add_members_from_form(form, files, team_id: int) -> list[str]:
 
     return errors
 
+
+def _unset_team_captain(team_id: int, exclude_member_id: int = None):
+    """Retire le brassard de tous les membres de l'équipe sauf celui exclu."""
+    q = TeamMember.query.filter_by(team_id=team_id, is_captain=True)
+    if exclude_member_id:
+        q = q.filter(TeamMember.id != exclude_member_id)
+    q.update({'is_captain': False})
+
+
 @team.route('', methods=['GET'])
 def get_all_teams():
-    # try:
+    try:
         teams = Team.query.all()
         return jsonify({
             'message': 'Teams retrieved successfully',
             'total': len(teams),
             'teams': [t.to_dict() for t in teams],
         }), 200
-    # except Exception as e:
-    #     return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @team.route('/<int:team_id>', methods=['GET'])
@@ -240,11 +247,8 @@ def update_team(team_id):
             val = data['is_registered']
             t.is_registered = val if isinstance(val, bool) else str(val).lower() == 'true'
 
-        # -------- LOGO UPDATE --------
         logo_file = request.files.get('logo')
         if logo_file:
-
-            # Supprimer ancien logo si existe
             if t.logo_public_id:
                 delete_from_cloudinary(t.logo_public_id)
 
@@ -281,7 +285,7 @@ def delete_team(team_id):
 
         db.session.delete(t)
         db.session.commit()
-        return jsonify({'message': 'Team deleted successfully'}), 200
+        return '', 204
 
     except Exception as e:
         db.session.rollback()
@@ -296,7 +300,6 @@ def delete_team(team_id):
 @team.route('/<int:team_id>/members', methods=['POST'])
 @jwt_required()
 def add_member(team_id):
-    """Ajoute un seul membre à une équipe existante (multipart/form-data)."""
     try:
         user = get_authorized_user()
         t = Team.query.get(team_id)
@@ -314,10 +317,6 @@ def add_member(team_id):
         if not first_name or not last_name:
             return jsonify({'error': 'first_name and last_name are required'}), 400
 
-        license_number = form.get('license_number', '').strip() or None
-        if license_number and TeamMember.query.filter_by(license_number=license_number).first():
-            return jsonify({'error': 'License number already used'}), 409
-
         birth_date = None
         raw_date = form.get('birth_date', '').strip()
         if raw_date:
@@ -327,6 +326,10 @@ def add_member(team_id):
                 return jsonify({'error': 'Invalid birth_date format, expected YYYY-MM-DD'}), 400
 
         photo_path = save_upload(request.files.get('photo'), 'members')
+
+        is_captain = form.get('is_captain', 'false').lower() == 'true'
+        if is_captain:
+            _unset_team_captain(team_id)
 
         member = TeamMember(
             team_id=team_id,
@@ -338,7 +341,14 @@ def add_member(team_id):
             photo_public_id=photo_path['public_id'] if photo_path else None,
             position=form.get('position', '').strip() or None if role == 'player' else None,
             jersey_number=form.get('jersey_number', type=int) if role == 'player' else None,
-            license_number=license_number if role == 'player' else None,
+            nationality=form.get('nationality', '').strip() or None,
+            nationality_label=form.get('nationality_label', '').strip() or None,
+            preferred_foot=form.get('preferred_foot', '').strip() or None,
+            height_cm=form.get('height_cm', type=int),
+            weight_kg=form.get('weight_kg', type=int),
+            gender=form.get('gender', '').strip() or None,
+            category=form.get('category', '').strip() or None,
+            is_captain=is_captain,
         )
         db.session.add(member)
         db.session.commit()
@@ -357,7 +367,7 @@ def get_team_members(team_id):
         if not t:
             return jsonify({'error': 'Team not found'}), 404
 
-        role_filter = request.args.get('role')  # ?role=player
+        role_filter = request.args.get('role')
         query = TeamMember.query.filter_by(team_id=team_id)
         if role_filter:
             query = query.filter_by(role=role_filter)
@@ -388,13 +398,17 @@ def remove_member(team_id, member_id):
         if not is_team_manager(user, t):
             return jsonify({'error': 'Unauthorized'}), 403
 
+        if member.photo_public_id:
+            delete_from_cloudinary(member.photo_public_id)
+
         db.session.delete(member)
         db.session.commit()
-        return jsonify({'message': 'Member removed successfully'}), 200
+        return '', 204
 
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
 
 @team.route('/<int:team_id>/members/<int:member_id>', methods=['PUT'])
 @jwt_required()
@@ -421,7 +435,6 @@ def update_member(team_id, member_id):
 
         member.role = role
 
-        # Champs joueur
         if role == 'player':
             if 'position' in form:
                 member.position = form['position'].strip() or None
@@ -433,12 +446,30 @@ def update_member(team_id, member_id):
                 except ValueError:
                     return jsonify({'error': 'Invalid birth_date format, expected YYYY-MM-DD'}), 400
         else:
-            # Si le rôle change et n'est plus joueur, on vide les champs sportifs
             member.position = None
             member.jersey_number = None
             member.birth_date = None
 
-        # Photo
+        if 'nationality' in form:
+            member.nationality = form['nationality'].strip() or None
+        if 'nationality_label' in form:
+            member.nationality_label = form['nationality_label'].strip() or None
+        if 'preferred_foot' in form:
+            member.preferred_foot = form['preferred_foot'].strip() or None
+        if 'height_cm' in form:
+            member.height_cm = int(form['height_cm']) if form['height_cm'].strip() else None
+        if 'weight_kg' in form:
+            member.weight_kg = int(form['weight_kg']) if form['weight_kg'].strip() else None
+        if 'gender' in form:
+            member.gender = form['gender'].strip() or None
+        if 'category' in form:
+            member.category = form['category'].strip() or None
+        if 'is_captain' in form:
+            new_val = form['is_captain'].lower() == 'true'
+            if new_val:
+                _unset_team_captain(team_id, exclude_member_id=member_id)
+            member.is_captain = new_val
+
         photo_file = request.files.get('photo')
         if photo_file:
             path = save_upload(photo_file, 'members')
@@ -454,6 +485,34 @@ def update_member(team_id, member_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+@team.route('/<int:team_id>/members/<int:member_id>/set_captain', methods=['POST'])
+@jwt_required()
+def set_captain(team_id, member_id):
+    try:
+        user = get_authorized_user()
+        t = Team.query.get(team_id)
+        member = TeamMember.query.get(member_id)
+
+        if not t:
+            return jsonify({'error': 'Team not found'}), 404
+        if not member or member.team_id != team_id:
+            return jsonify({'error': 'Member not found in this team'}), 404
+        if not is_team_manager(user, t):
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        _unset_team_captain(team_id)
+        member.is_captain = True
+        member.updated_at = datetime.utcnow()
+        db.session.commit()
+
+        return jsonify({'message': 'Captain set successfully', 'member': member.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
 
 # ==========================================
 # REGISTRATION ROUTES
@@ -475,6 +534,12 @@ def submit_registration(team_id):
         if TeamRegistration.query.filter_by(team_id=team_id).first():
             return jsonify({'error': 'Team already has a registration'}), 409
 
+        player_count = TeamMember.query.filter_by(team_id=team_id, role='player').count()
+        if player_count < MIN_PLAYERS:
+            return jsonify({
+                'error': f'Team must have at least {MIN_PLAYERS} players to register. Current: {player_count}'
+            }), 400
+
         data = request.get_json(silent=True) or {}
         registration = TeamRegistration(
             team_id=team_id,
@@ -490,6 +555,28 @@ def submit_registration(team_id):
 
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@team.route('/<int:team_id>/registration', methods=['GET'])
+@jwt_required()
+def get_team_registration(team_id):
+    try:
+        user = get_authorized_user()
+        t = Team.query.get(team_id)
+
+        if not t:
+            return jsonify({'error': 'Team not found'}), 404
+        if not is_team_manager(user, t):
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        registration = TeamRegistration.query.filter_by(team_id=team_id).first()
+        if not registration:
+            return jsonify({'message': 'No registration found', 'registration': None}), 200
+
+        return jsonify({'registration': registration.to_dict()}), 200
+
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
@@ -544,6 +631,12 @@ def validate_registration(reg_id):
         if not registration:
             return jsonify({'error': 'Registration not found'}), 404
 
+        if registration.status == RegistrationStatus.VALIDATED.value:
+            return jsonify({'error': 'Registration already validated'}), 409
+
+        if registration.status == RegistrationStatus.REJECTED.value:
+            return jsonify({'error': 'Cannot validate a rejected registration. Create a new one.'}), 409
+
         registration.status = RegistrationStatus.VALIDATED.value
         registration.validated_by_id = user.id
         registration.validation_date = datetime.utcnow()
@@ -551,6 +644,42 @@ def validate_registration(reg_id):
         t = registration.team
         t.is_registered = True
         t.registration_date = datetime.utcnow()
+
+        from olibo.license.model import License
+        from olibo.season.model import Season
+        active_season = Season.query.filter_by(is_active=True).first()
+        season_label = active_season.label if active_season else str(datetime.utcnow().year)
+
+        if active_season:
+            issue_date = datetime(
+                active_season.start_date.year,
+                active_season.start_date.month,
+                active_season.start_date.day,
+            )
+            expiry_date = datetime(
+                active_season.end_date.year,
+                active_season.end_date.month,
+                active_season.end_date.day,
+            )
+        else:
+            now = datetime.utcnow()
+            issue_date = now
+            expiry_date = datetime(now.year, 12, 31)
+
+        players = TeamMember.query.filter_by(team_id=t.id, role='player').all()
+        for player in players:
+            if not player.license_number:
+                player.license_number = f"OL-{season_label}-{t.id:03d}-{player.id:03d}"
+            season_id = active_season.id if active_season else None
+            existing = License.query.filter_by(member_id=player.id, season_id=season_id).first()
+            if not existing:
+                db.session.add(License(
+                    member_id=player.id,
+                    season_id=season_id,
+                    license_number=player.license_number,
+                    issue_date=issue_date,
+                    expiry_date=expiry_date,
+                ))
 
         db.session.commit()
         return jsonify({

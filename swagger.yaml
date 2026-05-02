@@ -1,0 +1,3650 @@
+swagger: "2.0"
+info:
+  title: Olibo League API
+  description: |
+    ## API de gestion de la Ligue Olibo
+
+    Cette API permet de gérer intégralement une compétition de football : équipes, matchs,
+    licences, votes, paiements, médias et bien plus.
+
+    ### Authentification
+    La plupart des endpoints nécessitent un **JWT Bearer Token**.
+    Connectez-vous via `POST /api/auth/login` pour obtenir vos tokens,
+    puis cliquez sur **Authorize** (🔒) et entrez : `Bearer <votre_access_token>`
+
+    ### Rôles disponibles
+    | Rôle | Description |
+    |------|-------------|
+    | `super_admin` | Accès total |
+    | `admin_competition` | Gestion des compétitions et équipes |
+    | `operator` | Gestion des matchs |
+    | `referee` | Arbitre — feuilles de match et incidents |
+    | `commissioner` | Commissaire de match |
+    | `team_captain` | Capitaine d'équipe |
+    | `coach` | Entraîneur |
+    | `player` | Joueur |
+    | `spectator` | Spectateur |
+    | `journalist` | Journaliste |
+
+  version: "1.0.0"
+  contact:
+    name: Équipe Olibo
+    email: contact@olibo.com
+  license:
+    name: Propriétaire
+
+host: "127.0.0.1:8000"
+basePath: "/"
+schemes:
+  - http
+
+consumes:
+  - application/json
+produces:
+  - application/json
+
+securityDefinitions:
+  Bearer:
+    type: apiKey
+    name: Authorization
+    in: header
+    description: "Format requis : **Bearer {access_token}**"
+
+tags:
+  - name: Auth
+    description: "Authentification — inscription, connexion, tokens"
+  - name: Users
+    description: "Gestion des utilisateurs"
+  - name: Competition
+    description: "Gestion des compétitions / saisons"
+  - name: Team
+    description: "Équipes, membres et enregistrements"
+  - name: License
+    description: "Licences des joueurs"
+  - name: Match
+    description: "Matchs, feuilles de match et événements"
+  - name: Ranking
+    description: "Classement du championnat"
+  - name: Voting
+    description: "Votes meilleur joueur"
+  - name: Incident
+    description: "Rapports d'incidents de match"
+  - name: Payment
+    description: "Paiements et inscriptions financières"
+  - name: Notification
+    description: "Notifications utilisateur"
+  - name: Media
+    description: "Médias — photos et vidéos"
+  - name: Announcements
+    description: "Annonces et actualités"
+  - name: Article
+    description: "Articles de blog"
+  - name: Season
+    description: "Gestion des saisons sportives"
+  - name: Enum
+    description: "Valeurs d'énumération du système"
+
+# ============================================================
+# DEFINITIONS (Schemas)
+# ============================================================
+definitions:
+
+  # --- Auth / Users ---
+  User:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      email:
+        type: string
+        format: email
+        example: jean.dupont@email.com
+      first_name:
+        type: string
+        example: Jean
+      last_name:
+        type: string
+        example: Dupont
+      phone:
+        type: string
+        example: "+237600000000"
+      role:
+        type: string
+        enum: [super_admin, admin_competition, operator, referee, commissioner, team_captain, coach, player, spectator, journalist]
+        example: team_captain
+      is_active:
+        type: boolean
+        example: true
+      created_at:
+        type: string
+        format: date-time
+        example: "2026-01-15T10:30:00Z"
+
+  UserRegister:
+    type: object
+    required: [email, password, first_name, last_name, role]
+    properties:
+      email:
+        type: string
+        format: email
+        example: jean.dupont@email.com
+      password:
+        type: string
+        minLength: 8
+        example: monMotDePasse123
+      first_name:
+        type: string
+        example: Jean
+      last_name:
+        type: string
+        example: Dupont
+      role:
+        type: string
+        enum: [team_captain, coach, spectator]
+        description: Seuls ces rôles sont autorisés à l'auto-inscription
+        example: team_captain
+      phone:
+        type: string
+        example: "+237600000000"
+
+  UserCreate:
+    type: object
+    required: [email, password, first_name, last_name, role]
+    properties:
+      email:
+        type: string
+        format: email
+        example: arbitre@olibo.com
+      password:
+        type: string
+        minLength: 8
+        example: motDePasse123
+      first_name:
+        type: string
+        example: Paul
+      last_name:
+        type: string
+        example: Martin
+      role:
+        type: string
+        enum: [super_admin, admin_competition, operator, referee, commissioner, team_captain, coach, player, spectator, journalist]
+        example: referee
+      phone:
+        type: string
+        example: "+237611111111"
+      is_active:
+        type: boolean
+        default: true
+
+  UserUpdate:
+    type: object
+    properties:
+      first_name:
+        type: string
+      last_name:
+        type: string
+      phone:
+        type: string
+      email:
+        type: string
+        format: email
+      password:
+        type: string
+        minLength: 8
+        description: Nouveau mot de passe
+      old_password:
+        type: string
+        description: Requis si changement de mot de passe
+      role:
+        type: string
+        description: Modifiable uniquement par un admin
+      is_active:
+        type: boolean
+        description: Modifiable uniquement par un admin
+
+  TokenPair:
+    type: object
+    properties:
+      access_token:
+        type: string
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      refresh_token:
+        type: string
+        example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+      user:
+        $ref: '#/definitions/User'
+
+  PaginatedUsers:
+    type: object
+    properties:
+      users:
+        type: array
+        items:
+          $ref: '#/definitions/User'
+      total:
+        type: integer
+        example: 45
+      page:
+        type: integer
+        example: 1
+      per_page:
+        type: integer
+        example: 20
+      pages:
+        type: integer
+        example: 3
+
+  # --- Season ---
+  Season:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      name:
+        type: string
+        example: "Saison 2025/26"
+      label:
+        type: string
+        example: "2025/26"
+      start_date:
+        type: string
+        format: date
+        example: "2025-08-01"
+      end_date:
+        type: string
+        format: date
+        example: "2026-06-30"
+      is_active:
+        type: boolean
+        example: true
+      created_at:
+        type: string
+        format: date-time
+
+  SeasonCreate:
+    type: object
+    required: [name, label, start_date, end_date]
+    properties:
+      name:
+        type: string
+        example: "Saison 2025/26"
+      label:
+        type: string
+        example: "2025/26"
+      start_date:
+        type: string
+        format: date
+        example: "2025-08-01"
+      end_date:
+        type: string
+        format: date
+        example: "2026-06-30"
+      is_active:
+        type: boolean
+        example: false
+
+  # --- Competition ---
+  Competition:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      name:
+        type: string
+        example: Championnat Olibo 2026
+      season:
+        type: integer
+        example: 2026
+      season_id:
+        type: integer
+        description: Référence vers la saison (Season.id)
+        example: 1
+      description:
+        type: string
+        example: Championnat annuel de la ligue Olibo
+      start_date:
+        type: string
+        format: date
+        example: "2026-01-01"
+      end_date:
+        type: string
+        format: date
+        example: "2026-06-30"
+      is_active:
+        type: boolean
+        example: true
+
+  CompetitionCreate:
+    type: object
+    required: [name, start_date, end_date, season]
+    properties:
+      name:
+        type: string
+        example: Championnat Olibo 2026
+      start_date:
+        type: string
+        format: date
+        example: "2026-01-01"
+      end_date:
+        type: string
+        format: date
+        example: "2026-06-30"
+      season:
+        type: integer
+        example: 2026
+      season_id:
+        type: integer
+        description: Référence optionnelle vers la saison (Season.id)
+        example: 1
+      description:
+        type: string
+        example: Championnat annuel
+      is_active:
+        type: boolean
+        example: true
+
+  # --- Team ---
+  Team:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      name:
+        type: string
+        example: FC Yaoundé
+      logo:
+        type: string
+        description: URL Cloudinary du logo
+        example: https://res.cloudinary.com/demo/image/upload/team_logo.jpg
+      description:
+        type: string
+        example: Équipe fondée en 2010
+      representative:
+        type: string
+        example: Pierre Kamga
+      is_registered:
+        type: boolean
+        example: false
+      captain_id:
+        type: integer
+        example: 5
+      coach_id:
+        type: integer
+        example: 3
+
+  TeamMember:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      team_id:
+        type: integer
+        example: 1
+      first_name:
+        type: string
+        example: Ali
+      last_name:
+        type: string
+        example: Ndoumbe
+      role:
+        type: string
+        enum: [player, coach, staff]
+        example: player
+      position:
+        type: string
+        example: Attaquant
+      jersey_number:
+        type: integer
+        example: 9
+      birth_date:
+        type: string
+        format: date
+        example: "2000-05-14"
+      photo:
+        type: string
+        example: https://res.cloudinary.com/demo/image/upload/player.jpg
+      license_number:
+        type: string
+        description: "Généré automatiquement à la validation de l'inscription — format OL-{season.label}-{team_id:03d}-{member_id:03d}"
+        example: OL-2025/26-001-009
+        readOnly: true
+      nationality:
+        type: string
+        description: Code ISO 3166-1 alpha-3
+        example: CMR
+      nationality_label:
+        type: string
+        example: Cameroun
+      preferred_foot:
+        type: string
+        enum: [Droit, Gauche, "Les deux"]
+        example: Droit
+      height_cm:
+        type: integer
+        example: 178
+      weight_kg:
+        type: integer
+        example: 72
+      gender:
+        type: string
+        enum: [M, F]
+        example: M
+      category:
+        type: string
+        enum: [Senior, U23, U18, U15]
+        example: Senior
+      is_captain:
+        type: boolean
+        description: Indique si ce membre est le capitaine de l'équipe (un seul par équipe)
+        example: false
+      is_active:
+        type: boolean
+        example: true
+      created_at:
+        type: string
+        format: date-time
+      updated_at:
+        type: string
+        format: date-time
+
+  TeamRegistration:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      team_id:
+        type: integer
+        example: 1
+      status:
+        type: string
+        enum: [pending, validated, rejected]
+        example: pending
+      reason:
+        type: string
+        description: Raison du rejet (si applicable)
+        example: Documents manquants
+      submitted_at:
+        type: string
+        format: date-time
+
+  # --- License ---
+  License:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      member_id:
+        type: integer
+        example: 10
+      season_id:
+        type: integer
+        description: Saison à laquelle la licence est rattachée
+        example: 1
+      license_number:
+        type: string
+        description: "Généré automatiquement au format OL-{season.label}-{team_id:03d}-{member_id:03d}"
+        example: OL-2025/26-001-010
+      issue_date:
+        type: string
+        format: date
+        example: "2025-08-01"
+      expiry_date:
+        type: string
+        format: date
+        example: "2026-06-30"
+      is_valid:
+        type: boolean
+        description: La licence est documentairement valide
+        example: true
+      is_active:
+        type: boolean
+        description: La licence est active pour la saison en cours (false si saison révoquée)
+        example: true
+      document_url:
+        type: string
+        example: https://example.com/docs/license.pdf
+      created_at:
+        type: string
+        format: date-time
+
+  # --- Match ---
+  Match:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      competition_id:
+        type: integer
+        example: 1
+      home_team_id:
+        type: integer
+        example: 1
+      away_team_id:
+        type: integer
+        example: 2
+      scheduled_date:
+        type: string
+        format: date-time
+        example: "2026-03-15T15:00:00Z"
+      location:
+        type: string
+        example: Stade Omnisports de Yaoundé
+      matchday:
+        type: integer
+        example: 5
+      status:
+        type: string
+        enum: [scheduled, in_progress, completed, cancelled]
+        example: scheduled
+      home_team_goals:
+        type: integer
+        example: 2
+      away_team_goals:
+        type: integer
+        example: 1
+      referee_id:
+        type: integer
+        example: 8
+
+  MatchSheet:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      match_id:
+        type: integer
+        example: 1
+      home_team_goals:
+        type: integer
+        example: 2
+      away_team_goals:
+        type: integer
+        example: 1
+      notes:
+        type: string
+        example: Match sans incident majeur
+      is_validated:
+        type: boolean
+        example: false
+
+  MatchEvent:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      match_id:
+        type: integer
+        example: 1
+      member_id:
+        type: integer
+        example: 15
+      event_type:
+        type: string
+        enum: [goal, assist, yellow_card, red_card, substitution]
+        example: goal
+      minute:
+        type: integer
+        minimum: 0
+        maximum: 130
+        example: 67
+      card_type:
+        type: string
+        enum: [yellow, red]
+        example: yellow
+      notes:
+        type: string
+        example: Tir du droit depuis la surface
+
+  MatchSheetFull:
+    type: object
+    properties:
+      match:
+        $ref: '#/definitions/Match'
+      sheet:
+        $ref: '#/definitions/MatchSheet'
+      events:
+        type: array
+        items:
+          $ref: '#/definitions/MatchEvent'
+
+  # --- Ranking ---
+  Ranking:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      competition_id:
+        type: integer
+        example: 1
+      team_id:
+        type: integer
+        example: 1
+      position:
+        type: integer
+        example: 1
+      played:
+        type: integer
+        example: 10
+      won:
+        type: integer
+        example: 7
+      drawn:
+        type: integer
+        example: 2
+      lost:
+        type: integer
+        example: 1
+      goals_for:
+        type: integer
+        example: 22
+      goals_against:
+        type: integer
+        example: 8
+      goal_difference:
+        type: integer
+        example: 14
+      points:
+        type: integer
+        example: 23
+
+  # --- Voting ---
+  Vote:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      member_id:
+        type: integer
+        example: 15
+      competition_id:
+        type: integer
+        example: 1
+      vote_type:
+        type: string
+        enum: [player_of_day, player_of_competition]
+        example: player_of_day
+      matchday:
+        type: integer
+        example: 5
+      created_at:
+        type: string
+        format: date-time
+
+  VoteResult:
+    type: object
+    properties:
+      member_id:
+        type: integer
+        example: 15
+      vote_count:
+        type: integer
+        example: 42
+      vote_type:
+        type: string
+        example: player_of_day
+      matchday:
+        type: integer
+        example: 5
+
+  # --- Incident ---
+  IncidentReport:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      match_id:
+        type: integer
+        example: 1
+      incident_type:
+        type: string
+        example: Comportement antisportif
+      description:
+        type: string
+        example: Le joueur a insulté l'arbitre à la 75e minute
+      member_id:
+        type: integer
+        example: 15
+      minute:
+        type: integer
+        example: 75
+      severity:
+        type: string
+        enum: [low, medium, high]
+        example: high
+      status:
+        type: string
+        enum: [reported, under_review, resolved]
+        example: reported
+
+  # --- Payment ---
+  Payment:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      amount:
+        type: number
+        example: 50000
+      payment_type:
+        type: string
+        example: inscription
+      team_id:
+        type: integer
+        example: 1
+      currency:
+        type: string
+        example: XAF
+      payment_method:
+        type: string
+        example: mobile_money
+      proof_url:
+        type: string
+        example: https://example.com/proof.jpg
+      status:
+        type: string
+        enum: [pending, completed, failed, refunded]
+        example: pending
+      transaction_id:
+        type: string
+        example: TXN-2026-001
+
+  # --- Notification ---
+  Notification:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      user_id:
+        type: integer
+        example: 5
+      message:
+        type: string
+        example: Votre équipe a été validée pour le championnat
+      is_read:
+        type: boolean
+        example: false
+      created_at:
+        type: string
+        format: date-time
+
+  # --- Media ---
+  Media:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      title:
+        type: string
+        example: Finale de la coupe Olibo 2026
+      file_url:
+        type: string
+        example: https://res.cloudinary.com/demo/image/upload/finale.jpg
+      file_type:
+        type: string
+        enum: [image, video]
+        example: image
+      description:
+        type: string
+        example: Photo de la finale du championnat
+      competition_id:
+        type: integer
+        example: 1
+      match_id:
+        type: integer
+        example: 20
+      is_published:
+        type: boolean
+        example: true
+
+  # --- News / Announcements ---
+  News:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      title:
+        type: string
+        example: Début du championnat 2026
+      content:
+        type: string
+        example: Le championnat débutera le 15 janvier 2026...
+      featured_image:
+        type: string
+        example: https://res.cloudinary.com/demo/image/upload/news.jpg
+      is_published:
+        type: boolean
+        example: true
+      competition_id:
+        type: integer
+        example: 1
+      created_at:
+        type: string
+        format: date-time
+
+  # --- Article ---
+  Article:
+    type: object
+    properties:
+      id:
+        type: integer
+        example: 1
+      title:
+        type: string
+        example: Les meilleures équipes de la saison
+      content:
+        type: string
+        description: Contenu HTML de l'article
+        example: "<p>Cette saison a été marquée par...</p>"
+      excerpt:
+        type: string
+        example: Résumé de la meilleure saison de la ligue Olibo
+      cover_image:
+        type: string
+        example: https://res.cloudinary.com/demo/image/upload/article.jpg
+      slug:
+        type: string
+        example: meilleures-equipes-saison-2026
+      status:
+        type: string
+        enum: [draft, published]
+        example: published
+      created_at:
+        type: string
+        format: date-time
+
+  # --- Season stats ---
+  TeamSeasonStats:
+    type: object
+    properties:
+      team_id:
+        type: integer
+        example: 3
+      team_name:
+        type: string
+        example: FC Yaoundé United
+      team_logo:
+        type: string
+        example: https://picsum.photos/seed/logo_fc_yaounde/300/300
+      ranking:
+        type: object
+        properties:
+          best_position:
+            type: integer
+            example: 1
+          matches_played:
+            type: integer
+            example: 18
+          wins:
+            type: integer
+            example: 12
+          draws:
+            type: integer
+            example: 4
+          losses:
+            type: integer
+            example: 2
+          goals_for:
+            type: integer
+            example: 38
+          goals_against:
+            type: integer
+            example: 14
+          goal_difference:
+            type: integer
+            example: 24
+          points:
+            type: integer
+            example: 40
+      discipline:
+        type: object
+        properties:
+          yellow_cards:
+            type: integer
+            example: 12
+          red_cards:
+            type: integer
+            example: 1
+      clean_sheets:
+        type: integer
+        example: 8
+      squad:
+        type: object
+        properties:
+          total_members:
+            type: integer
+            example: 15
+          licensed_players:
+            type: integer
+            example: 11
+
+  # --- Common ---
+  Message:
+    type: object
+    properties:
+      message:
+        type: string
+        example: Opération effectuée avec succès
+
+  Error:
+    type: object
+    properties:
+      error:
+        type: string
+        example: Unauthorized
+      message:
+        type: string
+        example: Token JWT invalide ou expiré
+
+# ============================================================
+# PATHS
+# ============================================================
+paths:
+
+  # ==================== AUTH ====================
+
+  /api/auth/register:
+    post:
+      tags: [Auth]
+      summary: Créer un compte utilisateur
+      description: |
+        Inscription d'un nouvel utilisateur. Seuls les rôles `team_captain`, `coach`
+        et `spectator` peuvent s'auto-inscrire. Les autres rôles sont créés par un admin.
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/UserRegister'
+      responses:
+        201:
+          description: Compte créé avec succès
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Compte créé avec succès
+              user:
+                $ref: '#/definitions/User'
+        400:
+          description: Données invalides (champs manquants, mot de passe trop court)
+          schema:
+            $ref: '#/definitions/Error'
+        409:
+          description: Email ou téléphone déjà utilisé
+          schema:
+            $ref: '#/definitions/Error'
+
+  /api/auth/login:
+    post:
+      tags: [Auth]
+      summary: Se connecter
+      description: |
+        Authentification par numéro de téléphone et mot de passe.
+        **Limité à 5 tentatives par minute.**
+        Retourne un `access_token` (valide 2h) et un `refresh_token` (valide 30 jours).
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [telephone, password]
+            properties:
+              telephone:
+                type: string
+                example: "+237600000000"
+              password:
+                type: string
+                example: monMotDePasse123
+      responses:
+        200:
+          description: Connexion réussie
+          schema:
+            $ref: '#/definitions/TokenPair'
+        401:
+          description: Identifiants invalides
+          schema:
+            $ref: '#/definitions/Error'
+        429:
+          description: Trop de tentatives — réessayez dans 1 minute
+          schema:
+            $ref: '#/definitions/Error'
+
+  /api/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Se déconnecter
+      description: Invalide les tokens JWT de l'utilisateur connecté.
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Déconnexion réussie
+          schema:
+            $ref: '#/definitions/Message'
+        401:
+          description: Non authentifié
+
+  /api/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Rafraîchir le token d'accès
+      description: |
+        Utilise le **refresh token** (dans le header Authorization) pour générer
+        un nouveau access token sans se reconnecter.
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Nouveau access token généré
+          schema:
+            type: object
+            properties:
+              access_token:
+                type: string
+                example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        401:
+          description: Refresh token invalide ou expiré
+
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Profil de l'utilisateur connecté
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Données de l'utilisateur authentifié
+          schema:
+            $ref: '#/definitions/User'
+        401:
+          description: Non authentifié
+
+  /api/auth/check-superadmin:
+    get:
+      tags: [Auth]
+      summary: Vérifier l'existence du super admin
+      description: Utilisé lors du setup initial de l'application.
+      responses:
+        200:
+          description: Statut du super admin
+          schema:
+            type: object
+            properties:
+              exists:
+                type: boolean
+                example: true
+              admin_competition_exists:
+                type: boolean
+                example: false
+
+  /api/auth/setup-complete:
+    get:
+      tags: [Auth]
+      summary: Vérifier si le setup initial est terminé
+      responses:
+        200:
+          description: Statut de la configuration initiale
+          schema:
+            type: object
+            properties:
+              complete:
+                type: boolean
+                example: true
+              has_admin_competition:
+                type: boolean
+                example: true
+
+  # ==================== USERS ====================
+
+  /api/users/create:
+    post:
+      tags: [Users]
+      summary: Créer un utilisateur (réservé aux admins)
+      description: Création d'un utilisateur avec n'importe quel rôle par un `super_admin` ou `admin_competition`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/UserCreate'
+      responses:
+        201:
+          description: Utilisateur créé
+          schema:
+            $ref: '#/definitions/User'
+        400:
+          description: Données invalides
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+          schema:
+            $ref: '#/definitions/Error'
+        409:
+          description: Email ou téléphone déjà utilisé
+          schema:
+            $ref: '#/definitions/Error'
+
+  /api/users:
+    get:
+      tags: [Users]
+      summary: Lister tous les utilisateurs
+      description: Accessible aux rôles administrateurs uniquement. Retourne une liste paginée.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: page
+          type: integer
+          default: 1
+          description: Numéro de page
+        - in: query
+          name: per_page
+          type: integer
+          default: 20
+          maximum: 100
+          description: Résultats par page (max 100)
+        - in: query
+          name: role
+          type: string
+          description: Filtrer par rôle
+          enum: [super_admin, admin_competition, operator, referee, commissioner, team_captain, coach, player, spectator, journalist]
+        - in: query
+          name: is_active
+          type: boolean
+          description: Filtrer par statut actif/inactif
+      responses:
+        200:
+          description: Liste paginée des utilisateurs
+          schema:
+            $ref: '#/definitions/PaginatedUsers'
+        403:
+          description: Permissions insuffisantes
+
+  /api/users/{id}:
+    get:
+      tags: [Users]
+      summary: Obtenir un utilisateur
+      description: Un utilisateur peut voir son propre profil. Les admins peuvent voir tous les profils.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+          description: ID de l'utilisateur
+      responses:
+        200:
+          description: Profil utilisateur
+          schema:
+            $ref: '#/definitions/User'
+        403:
+          description: Accès refusé
+        404:
+          description: Utilisateur non trouvé
+    put:
+      tags: [Users]
+      summary: Modifier un utilisateur
+      description: |
+        Un utilisateur peut modifier son propre profil.
+        Seul le `super_admin` peut changer le rôle ou le statut `is_active`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            $ref: '#/definitions/UserUpdate'
+      responses:
+        200:
+          description: Utilisateur mis à jour
+          schema:
+            $ref: '#/definitions/User'
+        400:
+          description: Ancien mot de passe incorrect
+        403:
+          description: Accès refusé
+        404:
+          description: Utilisateur non trouvé
+    delete:
+      tags: [Users]
+      summary: Supprimer un utilisateur
+      description: Réservé au `super_admin` uniquement.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Utilisateur supprimé
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Utilisateur non trouvé
+
+  /api/users/{id}/deactivate:
+    post:
+      tags: [Users]
+      summary: Désactiver un utilisateur
+      description: Empêche l'utilisateur de se connecter. Réservé au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Utilisateur désactivé
+          schema:
+            $ref: '#/definitions/User'
+        403:
+          description: Permissions insuffisantes
+
+  /api/users/{id}/activate:
+    post:
+      tags: [Users]
+      summary: Activer un utilisateur
+      description: Réactive un compte désactivé. Réservé au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Utilisateur activé
+          schema:
+            $ref: '#/definitions/User'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== SEASON ====================
+
+  /api/seasons:
+    get:
+      tags: [Season]
+      summary: Lister toutes les saisons
+      responses:
+        200:
+          description: Liste des saisons
+          schema:
+            type: object
+            properties:
+              total:
+                type: integer
+              seasons:
+                type: array
+                items:
+                  $ref: '#/definitions/Season'
+    post:
+      tags: [Season]
+      summary: Créer une saison
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/SeasonCreate'
+      responses:
+        201:
+          description: Saison créée
+          schema:
+            $ref: '#/definitions/Season'
+        400:
+          description: Données invalides
+        403:
+          description: Réservé au super_admin
+
+  /api/seasons/active:
+    get:
+      tags: [Season]
+      summary: Retourner la saison active
+      responses:
+        200:
+          description: Saison active ou null
+          schema:
+            $ref: '#/definitions/Season'
+
+  /api/seasons/{id}:
+    get:
+      tags: [Season]
+      summary: Détail d'une saison
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Saison trouvée
+          schema:
+            $ref: '#/definitions/Season'
+        404:
+          description: Saison introuvable
+    put:
+      tags: [Season]
+      summary: Modifier une saison
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/SeasonCreate'
+      responses:
+        200:
+          description: Saison mise à jour
+          schema:
+            $ref: '#/definitions/Season'
+        403:
+          description: Réservé au super_admin
+        404:
+          description: Saison introuvable
+    delete:
+      tags: [Season]
+      summary: Supprimer une saison
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Saison supprimée (licences de la saison révoquées automatiquement)
+        403:
+          description: Réservé au super_admin
+        404:
+          description: Saison introuvable
+
+  /api/seasons/{id}/teams/stats:
+    get:
+      tags: [Season]
+      summary: Statistiques des équipes pour une saison
+      description: |
+        Retourne, pour chaque équipe ayant participé à la saison, l'ensemble de ses statistiques agrégées :
+        classement (V/N/D, buts, points), discipline (cartons), clean sheets et effectif licencié.
+        Les équipes sont triées par **points décroissants**, puis **goal difference**.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+          description: Identifiant de la saison
+      responses:
+        200:
+          description: Statistiques des équipes pour la saison
+          schema:
+            type: object
+            properties:
+              season:
+                $ref: '#/definitions/Season'
+              total:
+                type: integer
+                example: 9
+              teams:
+                type: array
+                items:
+                  $ref: '#/definitions/TeamSeasonStats'
+        404:
+          description: Saison introuvable
+
+  # ==================== COMPETITION ====================
+
+  /api/competition/active:
+    get:
+      tags: [Competition]
+      summary: Obtenir la compétition active
+      description: Retourne la compétition en cours (`is_active = true`) ou `null`.
+      responses:
+        200:
+          description: Compétition active ou null
+          schema:
+            $ref: '#/definitions/Competition'
+
+  /api/competition:
+    post:
+      tags: [Competition]
+      summary: Créer une compétition
+      description: Réservé aux rôles `super_admin` et `admin_competition`. Une seule compétition active à la fois.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            $ref: '#/definitions/CompetitionCreate'
+      responses:
+        201:
+          description: Compétition créée
+          schema:
+            $ref: '#/definitions/Competition'
+        400:
+          description: Une compétition active existe déjà
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+    get:
+      tags: [Competition]
+      summary: Lister toutes les compétitions
+      responses:
+        200:
+          description: Liste de toutes les compétitions
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Competition'
+
+  /api/competition/{id}:
+    get:
+      tags: [Competition]
+      summary: Obtenir une compétition par ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de la compétition
+          schema:
+            $ref: '#/definitions/Competition'
+        404:
+          description: Compétition non trouvée
+    put:
+      tags: [Competition]
+      summary: Modifier une compétition
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              start_date:
+                type: string
+                format: date
+              end_date:
+                type: string
+                format: date
+              is_active:
+                type: boolean
+      responses:
+        200:
+          description: Compétition mise à jour
+          schema:
+            $ref: '#/definitions/Competition'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Compétition non trouvée
+    delete:
+      tags: [Competition]
+      summary: Supprimer une compétition
+      description: |
+        Impossible si des matchs complétés existent pour cette compétition.
+        Réservé au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Compétition supprimée
+        400:
+          description: Des matchs complétés existent pour cette compétition
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== TEAM ====================
+
+  /api/team:
+    post:
+      tags: [Team]
+      summary: Créer une équipe
+      description: |
+        Utilise `multipart/form-data` pour l'upload du logo.
+        Les membres initiaux peuvent être inclus via des champs indexés (`members[0][first_name]`, etc.).
+        Logo limité à **2 Mo** (redimensionné à 500x500 via Cloudinary).
+      security:
+        - Bearer: []
+      consumes:
+        - multipart/form-data
+      parameters:
+        - in: formData
+          name: name
+          required: true
+          type: string
+          description: Nom de l'équipe
+        - in: formData
+          name: logo
+          type: file
+          description: Logo de l'équipe (image, max 2 Mo)
+        - in: formData
+          name: representative
+          type: string
+          description: Nom du représentant officiel
+        - in: formData
+          name: description
+          type: string
+        - in: formData
+          name: captain_id
+          type: integer
+          description: ID de l'utilisateur capitaine
+        - in: formData
+          name: coach_id
+          type: integer
+          description: ID de l'utilisateur entraîneur
+        - in: formData
+          name: is_registered
+          type: boolean
+      responses:
+        201:
+          description: Équipe créée
+          schema:
+            $ref: '#/definitions/Team'
+        400:
+          description: Données invalides
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+    get:
+      tags: [Team]
+      summary: Lister toutes les équipes
+      responses:
+        200:
+          description: Liste des équipes
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Team'
+
+  /api/team/{id}:
+    get:
+      tags: [Team]
+      summary: Obtenir une équipe avec ses membres
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de l'équipe incluant la liste des membres
+          schema:
+            allOf:
+              - $ref: '#/definitions/Team'
+              - type: object
+                properties:
+                  members:
+                    type: array
+                    items:
+                      $ref: '#/definitions/TeamMember'
+        404:
+          description: Équipe non trouvée
+    put:
+      tags: [Team]
+      summary: Modifier une équipe
+      description: Accessible au capitaine, coach ou aux admins de l'équipe.
+      security:
+        - Bearer: []
+      consumes:
+        - multipart/form-data
+        - application/json
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: formData
+          name: name
+          type: string
+        - in: formData
+          name: description
+          type: string
+        - in: formData
+          name: is_registered
+          type: boolean
+        - in: formData
+          name: logo
+          type: file
+          description: Nouveau logo (optionnel)
+      responses:
+        200:
+          description: Équipe mise à jour
+          schema:
+            $ref: '#/definitions/Team'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Équipe non trouvée
+    delete:
+      tags: [Team]
+      summary: Supprimer une équipe
+      description: Réservé au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Équipe supprimée
+        403:
+          description: Permissions insuffisantes
+
+  /api/team/{id}/members:
+    post:
+      tags: [Team]
+      summary: Ajouter un membre à l'équipe
+      description: Accessible au capitaine, coach ou admins. Supporte l'upload de photo.
+      security:
+        - Bearer: []
+      consumes:
+        - multipart/form-data
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: formData
+          name: first_name
+          required: true
+          type: string
+        - in: formData
+          name: last_name
+          required: true
+          type: string
+        - in: formData
+          name: role
+          required: true
+          type: string
+          enum: [player, coach, staff]
+        - in: formData
+          name: photo
+          type: file
+          description: Photo du membre (optionnel)
+        - in: formData
+          name: birth_date
+          type: string
+          description: Format YYYY-MM-DD
+        - in: formData
+          name: position
+          type: string
+          description: Poste du joueur (ex. Attaquant)
+        - in: formData
+          name: jersey_number
+          type: integer
+          description: Numéro de maillot
+        - in: formData
+          name: license_number
+          type: string
+      responses:
+        201:
+          description: Membre ajouté
+          schema:
+            $ref: '#/definitions/TeamMember'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Équipe non trouvée
+    get:
+      tags: [Team]
+      summary: Lister les membres d'une équipe
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: query
+          name: role
+          type: string
+          enum: [player, coach, staff]
+          description: Filtrer par rôle
+      responses:
+        200:
+          description: Liste des membres de l'équipe
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/TeamMember'
+
+  /api/team/{id}/members/{member_id}:
+    put:
+      tags: [Team]
+      summary: Modifier un membre
+      security:
+        - Bearer: []
+      consumes:
+        - multipart/form-data
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: path
+          name: member_id
+          required: true
+          type: integer
+        - in: formData
+          name: first_name
+          type: string
+        - in: formData
+          name: last_name
+          type: string
+        - in: formData
+          name: role
+          type: string
+          enum: [player, coach, staff]
+        - in: formData
+          name: photo
+          type: file
+        - in: formData
+          name: position
+          type: string
+        - in: formData
+          name: jersey_number
+          type: integer
+        - in: formData
+          name: birth_date
+          type: string
+          description: Format YYYY-MM-DD
+        - in: formData
+          name: is_captain
+          type: boolean
+          description: Passer à true pour désigner ce membre capitaine (retire le brassard au précédent)
+      responses:
+        200:
+          description: Membre mis à jour
+          schema:
+            $ref: '#/definitions/TeamMember'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Membre non trouvé
+    delete:
+      tags: [Team]
+      summary: Retirer un membre de l'équipe
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: path
+          name: member_id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Membre retiré
+        403:
+          description: Permissions insuffisantes
+
+  /api/team/{id}/members/{member_id}/set_captain:
+    post:
+      tags: [Team]
+      summary: Désigner le capitaine de l'équipe
+      description: |
+        Retire le brassard de l'éventuel capitaine actuel et le donne au membre ciblé.
+        Accessible au capitaine de l'équipe et aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: path
+          name: member_id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Capitaine désigné
+          schema:
+            $ref: '#/definitions/TeamMember'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Équipe ou membre introuvable
+
+  /api/team/{id}/registration:
+    post:
+      tags: [Team]
+      summary: Soumettre une demande d'enregistrement
+      description: |
+        L'équipe doit avoir **au minimum 7 joueurs** (rôle `player`) pour soumettre une demande.
+        Une seule demande en attente possible à la fois.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              documents:
+                type: string
+                description: URL des documents justificatifs
+      responses:
+        201:
+          description: Demande d'enregistrement soumise
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+        400:
+          description: Moins de 7 joueurs ou demande déjà soumise
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+    get:
+      tags: [Team]
+      summary: Obtenir l'enregistrement de l'équipe
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données d'enregistrement ou null
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+
+  /api/team/registrations:
+    get:
+      tags: [Team]
+      summary: Lister toutes les demandes d'enregistrement
+      description: Réservé aux rôles administrateurs.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          enum: [pending, validated, rejected]
+          description: Filtrer par statut
+      responses:
+        200:
+          description: Liste des demandes d'enregistrement
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/TeamRegistration'
+        403:
+          description: Permissions insuffisantes
+
+  /api/team/registrations/{reg_id}:
+    get:
+      tags: [Team]
+      summary: Détails d'une demande d'enregistrement
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: reg_id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de la demande
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+        404:
+          description: Demande non trouvée
+
+  /api/team/registrations/{reg_id}/validate:
+    post:
+      tags: [Team]
+      summary: Approuver une demande d'enregistrement
+      description: |
+        Valide l'inscription d'une équipe.
+        **Effet de bord** : génère automatiquement un `license_number` et crée
+        un enregistrement `License` pour chaque joueur actif de l'équipe qui
+        n'en possède pas encore pour la saison active.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: reg_id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Demande approuvée (statut → validated) — licences créées automatiquement
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Demande non trouvée
+
+  /api/team/registrations/{reg_id}/reject:
+    post:
+      tags: [Team]
+      summary: Rejeter une demande d'enregistrement
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: reg_id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              reason:
+                type: string
+                description: Raison du rejet
+                example: Documents incomplets
+      responses:
+        200:
+          description: Demande rejetée (statut → rejected)
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== LICENSE ====================
+
+  /api/license:
+    post:
+      tags: [License]
+      summary: Créer une licence
+      description: |
+        Crée une licence pour un membre de type `player` uniquement.
+        Réservé aux `super_admin` et `admin_competition`.
+        Le numéro de licence est **auto-généré** au format `OL-{season.label}-{team_id:03d}-{member_id:03d}`.
+        Il est possible de préciser un `season_id` ; sinon la saison active est utilisée.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [member_id, issue_date, expiry_date]
+            properties:
+              member_id:
+                type: integer
+                example: 10
+              season_id:
+                type: integer
+                description: Saison concernée (optionnel — saison active par défaut)
+                example: 1
+              issue_date:
+                type: string
+                format: date
+                example: "2025-08-01"
+              expiry_date:
+                type: string
+                format: date
+                example: "2026-06-30"
+              document_url:
+                type: string
+                example: https://example.com/license.pdf
+      responses:
+        201:
+          description: Licence créée
+          schema:
+            $ref: '#/definitions/License'
+        400:
+          description: Membre non joueur ou licence déjà existante
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+    get:
+      tags: [License]
+      summary: Lister les licences
+      description: |
+        Filtrées selon le rôle :
+        - Admin : toutes les licences
+        - Capitaine/Coach : licences de son équipe uniquement
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: member_id
+          type: integer
+          description: Filtrer par membre
+        - in: query
+          name: team_id
+          type: integer
+          description: Filtrer par équipe
+        - in: query
+          name: season_id
+          type: integer
+          description: Filtrer par saison
+        - in: query
+          name: is_valid
+          type: boolean
+          description: Filtrer par validité documentaire
+        - in: query
+          name: is_active
+          type: boolean
+          description: Filtrer par statut actif (false = saison révoquée)
+      responses:
+        200:
+          description: Liste des licences
+          schema:
+            type: object
+            properties:
+              total:
+                type: integer
+              licenses:
+                type: array
+                items:
+                  $ref: '#/definitions/License'
+
+  /api/license/season/{season_id}/team/{team_id}:
+    get:
+      tags: [License]
+      summary: Licences d'une équipe pour une saison donnée
+      description: |
+        Retourne les licences actives de l'équipe pour la saison précisée.
+        Le header `X-Active-Season` indique le label de la saison actuellement active.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: season_id
+          required: true
+          type: integer
+        - in: path
+          name: team_id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Liste des licences de l'équipe pour cette saison
+          headers:
+            X-Active-Season:
+              type: string
+              description: "Label de la saison active (ex: 2025/26)"
+          schema:
+            type: object
+            properties:
+              total:
+                type: integer
+              licenses:
+                type: array
+                items:
+                  $ref: '#/definitions/License'
+        404:
+          description: Saison introuvable
+
+  /api/license/team/{team_id}/generate:
+    post:
+      tags: [License]
+      summary: Générer les licences de tous les joueurs d'une équipe
+      description: |
+        Crée automatiquement une licence pour chaque joueur actif de l'équipe
+        qui n'en possède pas encore pour la saison cible.
+        Si aucun `season_id` n'est fourni, la saison active est utilisée.
+        Les dates `issue_date` / `expiry_date` sont déduites des dates de la saison
+        si elles ne sont pas fournies explicitement.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              season_id:
+                type: integer
+                description: "Saison cible (défaut : saison active)"
+              issue_date:
+                type: string
+                format: date-time
+                description: "Date d'émission (défaut : début de saison)"
+              expiry_date:
+                type: string
+                format: date-time
+                description: "Date d'expiration (défaut : fin de saison)"
+      responses:
+        201:
+          description: Licences générées
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: "3 license(s) generated"
+              created:
+                type: array
+                items:
+                  $ref: '#/definitions/License'
+              skipped:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    member_id:
+                      type: integer
+                    reason:
+                      type: string
+        400:
+          description: Dates invalides
+        403:
+          description: Unauthorized
+        404:
+          description: Équipe ou saison introuvable
+
+  /api/license/{id}:
+    get:
+      tags: [License]
+      summary: Détails d'une licence
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de la licence
+          schema:
+            $ref: '#/definitions/License'
+        404:
+          description: Licence non trouvée
+    put:
+      tags: [License]
+      summary: Renouveler ou modifier une licence
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              expiry_date:
+                type: string
+                format: date
+                example: "2027-12-31"
+              document_url:
+                type: string
+                example: https://example.com/new_license.pdf
+      responses:
+        200:
+          description: Licence mise à jour
+          schema:
+            $ref: '#/definitions/License'
+        403:
+          description: Permissions insuffisantes
+    delete:
+      tags: [License]
+      summary: Supprimer une licence
+      description: Réservé au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Licence supprimée
+        403:
+          description: Permissions insuffisantes
+
+  /api/license/{id}/validate:
+    post:
+      tags: [License]
+      summary: Valider une licence
+      description: Marque la licence comme valide (`is_valid = true`).
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Licence validée
+          schema:
+            $ref: '#/definitions/License'
+        403:
+          description: Permissions insuffisantes
+
+  /api/license/{id}/invalidate:
+    post:
+      tags: [License]
+      summary: Révoquer une licence
+      description: Marque la licence comme invalide (`is_valid = false`).
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Licence révoquée
+          schema:
+            $ref: '#/definitions/License'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== MATCH ====================
+
+  /api/match_sheet/matches:
+    post:
+      tags: [Match]
+      summary: Créer un match
+      description: Planifie un nouveau match dans une compétition.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [competition_id, home_team_id, away_team_id, scheduled_date]
+            properties:
+              competition_id:
+                type: integer
+                example: 1
+              home_team_id:
+                type: integer
+                example: 1
+              away_team_id:
+                type: integer
+                example: 2
+              scheduled_date:
+                type: string
+                format: date-time
+                example: "2026-03-15T15:00:00Z"
+              matchday:
+                type: integer
+                example: 5
+              location:
+                type: string
+                example: Stade Omnisports de Yaoundé
+              referee_id:
+                type: integer
+                example: 8
+      responses:
+        201:
+          description: Match créé
+          schema:
+            $ref: '#/definitions/Match'
+        400:
+          description: Données invalides (même équipe, competition invalide)
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+    get:
+      tags: [Match]
+      summary: Lister les matchs
+      description: Accessible publiquement. Filtrable par compétition et statut.
+      parameters:
+        - in: query
+          name: competition_id
+          type: integer
+          description: Filtrer par compétition
+        - in: query
+          name: status
+          type: string
+          enum: [scheduled, in_progress, completed, cancelled]
+      responses:
+        200:
+          description: Liste des matchs
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Match'
+
+  /api/match_sheet/matches/{id}:
+    get:
+      tags: [Match]
+      summary: Obtenir un match
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données du match
+          schema:
+            $ref: '#/definitions/Match'
+        404:
+          description: Match non trouvé
+    put:
+      tags: [Match]
+      summary: Modifier un match
+      description: Impossible si le match a le statut `completed`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              scheduled_date:
+                type: string
+                format: date-time
+              location:
+                type: string
+              matchday:
+                type: integer
+              referee_id:
+                type: integer
+      responses:
+        200:
+          description: Match mis à jour
+          schema:
+            $ref: '#/definitions/Match'
+        400:
+          description: Match déjà complété
+        403:
+          description: Permissions insuffisantes
+
+  /api/match_sheet/matches/{id}/sheet:
+    get:
+      tags: [Match]
+      summary: Obtenir la feuille de match complète
+      description: Retourne le match, la feuille et tous les événements enregistrés.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Feuille de match complète
+          schema:
+            $ref: '#/definitions/MatchSheetFull'
+    post:
+      tags: [Match]
+      summary: Remplir la feuille de match
+      description: Réservé aux rôles `referee` et `commissioner`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              home_team_goals:
+                type: integer
+                minimum: 0
+                example: 2
+              away_team_goals:
+                type: integer
+                minimum: 0
+                example: 1
+              notes:
+                type: string
+                example: Match joué sans incident
+      responses:
+        200:
+          description: Feuille de match remplie/mise à jour
+          schema:
+            $ref: '#/definitions/MatchSheet'
+        403:
+          description: Réservé au referee et commissioner
+
+  /api/match_sheet/matches/{id}/sheet/validate:
+    post:
+      tags: [Match]
+      summary: Valider la feuille de match
+      description: |
+        Verrouille la feuille de match (`is_validated = true`).
+        Après validation, **les événements ne peuvent plus être modifiés**.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Feuille de match validée
+          schema:
+            $ref: '#/definitions/MatchSheet'
+        403:
+          description: Permissions insuffisantes
+
+  /api/match_sheet/matches/{id}/close:
+    post:
+      tags: [Match]
+      summary: Clôturer un match
+      description: |
+        Passe le statut du match à `completed` et **recalcule automatiquement
+        les classements** de la compétition.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Match clôturé — classements mis à jour
+          schema:
+            type: object
+            properties:
+              match:
+                $ref: '#/definitions/Match'
+              rankings:
+                type: array
+                items:
+                  $ref: '#/definitions/Ranking'
+        403:
+          description: Permissions insuffisantes
+
+  /api/match_sheet/matches/{id}/events:
+    post:
+      tags: [Match]
+      summary: Enregistrer un événement de match
+      description: |
+        Types d'événements : `goal`, `assist`, `yellow_card`, `red_card`, `substitution`.
+        Impossible si la feuille de match est déjà **validée**.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [member_id, event_type, minute]
+            properties:
+              member_id:
+                type: integer
+                example: 15
+              event_type:
+                type: string
+                enum: [goal, assist, yellow_card, red_card, substitution]
+                example: goal
+              minute:
+                type: integer
+                minimum: 0
+                maximum: 130
+                example: 67
+              card_type:
+                type: string
+                enum: [yellow, red]
+                description: Requis si event_type est yellow_card ou red_card
+              notes:
+                type: string
+      responses:
+        201:
+          description: Événement enregistré
+          schema:
+            $ref: '#/definitions/MatchEvent'
+        400:
+          description: Feuille de match déjà validée
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Réservé au referee et commissioner
+    get:
+      tags: [Match]
+      summary: Lister les événements d'un match
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Liste des événements du match
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/MatchEvent'
+
+  /api/match_sheet/matches/{id}/events/{event_id}:
+    delete:
+      tags: [Match]
+      summary: Supprimer un événement
+      description: Impossible si la feuille de match est déjà validée.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: path
+          name: event_id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Événement supprimé
+        400:
+          description: Feuille déjà validée — suppression impossible
+          schema:
+            $ref: '#/definitions/Error'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== RANKING ====================
+
+  /api/ranking/competition/{comp_id}:
+    get:
+      tags: [Ranking]
+      summary: Classement d'une compétition
+      description: Retourne toutes les équipes classées par points, différence de buts, puis buts marqués.
+      parameters:
+        - in: path
+          name: comp_id
+          required: true
+          type: integer
+          description: ID de la compétition
+      responses:
+        200:
+          description: Tableau de classement ordonné
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Ranking'
+        404:
+          description: Compétition non trouvée
+
+  /api/ranking/competition/{comp_id}/team/{team_id}:
+    get:
+      tags: [Ranking]
+      summary: Classement d'une équipe dans une compétition
+      parameters:
+        - in: path
+          name: comp_id
+          required: true
+          type: integer
+        - in: path
+          name: team_id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Position et statistiques de l'équipe
+          schema:
+            $ref: '#/definitions/Ranking'
+        404:
+          description: Classement non trouvé
+
+  /api/ranking/:
+    post:
+      tags: [Ranking]
+      summary: Recalculer les classements manuellement
+      description: |
+        Force le recalcul complet du classement d'une compétition sur la base
+        de tous les matchs complétés. Normalement déclenché automatiquement
+        à la clôture d'un match.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [competition_id]
+            properties:
+              competition_id:
+                type: integer
+                example: 1
+      responses:
+        200:
+          description: Classements recalculés
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Ranking'
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== VOTING ====================
+
+  /api/voting:
+    post:
+      tags: [Voting]
+      summary: Voter pour un joueur
+      description: |
+        **Règles de vote :**
+        - Un vote par utilisateur par catégorie (`vote_type`)
+        - Pour `player_of_day` : le champ `matchday` est obligatoire
+        - Uniquement pour la compétition **active**
+        - L'utilisateur ne peut pas voter pour lui-même
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [member_id, competition_id, vote_type]
+            properties:
+              member_id:
+                type: integer
+                example: 15
+              competition_id:
+                type: integer
+                example: 1
+              vote_type:
+                type: string
+                enum: [player_of_day, player_of_competition]
+                example: player_of_day
+              matchday:
+                type: integer
+                description: Obligatoire si vote_type = player_of_day
+                example: 5
+      responses:
+        201:
+          description: Vote enregistré
+          schema:
+            $ref: '#/definitions/Vote'
+        400:
+          description: A déjà voté ou compétition non active
+          schema:
+            $ref: '#/definitions/Error'
+
+  /api/voting/results:
+    get:
+      tags: [Voting]
+      summary: Résultats des votes
+      description: Réservé au `super_admin`. Retourne les comptages de votes.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: competition_id
+          type: integer
+        - in: query
+          name: vote_type
+          type: string
+          enum: [player_of_day, player_of_competition]
+        - in: query
+          name: matchday
+          type: integer
+      responses:
+        200:
+          description: Résultats des votes
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/VoteResult'
+        403:
+          description: Permissions insuffisantes
+
+  /api/voting/has-voted:
+    get:
+      tags: [Voting]
+      summary: Vérifier si l'utilisateur a déjà voté
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: vote_type
+          required: true
+          type: string
+          enum: [player_of_day, player_of_competition]
+        - in: query
+          name: competition_id
+          required: true
+          type: integer
+        - in: query
+          name: matchday
+          type: integer
+          description: Requis si vote_type = player_of_day
+      responses:
+        200:
+          description: Statut du vote
+          schema:
+            type: object
+            properties:
+              has_voted:
+                type: boolean
+                example: false
+
+  /api/voting/{id}:
+    delete:
+      tags: [Voting]
+      summary: Supprimer un vote
+      description: Réservé au `super_admin`. Décrémente automatiquement le compteur.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Vote supprimé
+        403:
+          description: Permissions insuffisantes
+
+  # ==================== INCIDENT ====================
+
+  /api/incident_report:
+    post:
+      tags: [Incident]
+      summary: Créer un rapport d'incident
+      description: Réservé aux `referee` et `commissioner`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [match_id, incident_type, description]
+            properties:
+              match_id:
+                type: integer
+                example: 5
+              incident_type:
+                type: string
+                example: Comportement antisportif
+              description:
+                type: string
+                example: Le joueur numéro 9 a insulté l'arbitre
+              member_id:
+                type: integer
+                example: 15
+              minute:
+                type: integer
+                example: 78
+              severity:
+                type: string
+                enum: [low, medium, high]
+                example: high
+      responses:
+        201:
+          description: Rapport d'incident créé
+          schema:
+            $ref: '#/definitions/IncidentReport'
+        403:
+          description: Réservé au referee et commissioner
+    get:
+      tags: [Incident]
+      summary: Lister les rapports d'incidents
+      description: Réservé aux administrateurs.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          enum: [reported, under_review, resolved]
+        - in: query
+          name: match_id
+          type: integer
+        - in: query
+          name: severity
+          type: string
+          enum: [low, medium, high]
+      responses:
+        200:
+          description: Liste des rapports
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/IncidentReport'
+        403:
+          description: Réservé aux admins
+
+  /api/incident_report/{id}:
+    get:
+      tags: [Incident]
+      summary: Détails d'un rapport d'incident
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données du rapport
+          schema:
+            $ref: '#/definitions/IncidentReport'
+        404:
+          description: Rapport non trouvé
+    put:
+      tags: [Incident]
+      summary: Mettre à jour un rapport d'incident
+      description: Permet de changer le statut ou la sévérité. Réservé aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+                enum: [reported, under_review, resolved]
+              resolution:
+                type: string
+                description: Description de la résolution
+                example: Sanction de 2 matchs appliquée
+              severity:
+                type: string
+                enum: [low, medium, high]
+      responses:
+        200:
+          description: Rapport mis à jour
+          schema:
+            $ref: '#/definitions/IncidentReport'
+        403:
+          description: Réservé aux admins
+
+  # ==================== PAYMENT ====================
+
+  /api/payment:
+    post:
+      tags: [Payment]
+      summary: Créer un paiement
+      description: Tout utilisateur authentifié peut créer un paiement. Le statut initial est `pending`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [amount, payment_type]
+            properties:
+              amount:
+                type: number
+                minimum: 0.01
+                example: 50000
+              payment_type:
+                type: string
+                example: inscription
+              team_id:
+                type: integer
+                example: 1
+              currency:
+                type: string
+                default: XAF
+                example: XAF
+              payment_method:
+                type: string
+                example: mobile_money
+              proof_url:
+                type: string
+                example: https://example.com/proof.jpg
+      responses:
+        201:
+          description: Paiement créé (statut pending)
+          schema:
+            $ref: '#/definitions/Payment'
+        400:
+          description: Montant invalide (≤ 0)
+    get:
+      tags: [Payment]
+      summary: Lister tous les paiements
+      description: Réservé aux administrateurs.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          enum: [pending, completed, failed, refunded]
+      responses:
+        200:
+          description: Liste de tous les paiements
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Payment'
+        403:
+          description: Réservé aux admins
+
+  /api/payment/my-payments:
+    get:
+      tags: [Payment]
+      summary: Mes paiements
+      description: Retourne uniquement les paiements de l'utilisateur connecté.
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Paiements de l'utilisateur
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Payment'
+
+  /api/payment/{id}/confirm:
+    post:
+      tags: [Payment]
+      summary: Confirmer un paiement
+      description: Passe le statut à `completed`. Réservé aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              transaction_id:
+                type: string
+                description: Référence de transaction externe
+                example: TXN-2026-001
+      responses:
+        200:
+          description: Paiement confirmé
+          schema:
+            $ref: '#/definitions/Payment'
+        403:
+          description: Réservé aux admins
+
+  /api/payment/{id}/reject:
+    post:
+      tags: [Payment]
+      summary: Rejeter un paiement
+      description: Passe le statut à `failed`. Réservé aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Paiement rejeté
+          schema:
+            $ref: '#/definitions/Payment'
+        403:
+          description: Réservé aux admins
+
+  # ==================== NOTIFICATION ====================
+
+  /api/notification:
+    get:
+      tags: [Notification]
+      summary: Obtenir mes notifications
+      description: Retourne les notifications de l'utilisateur connecté, triées par date décroissante.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: unread
+          type: boolean
+          description: "true = uniquement les non lues"
+      responses:
+        200:
+          description: Liste des notifications
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Notification'
+
+  /api/notification/{id}/read:
+    post:
+      tags: [Notification]
+      summary: Marquer une notification comme lue
+      description: Accessible uniquement au propriétaire de la notification.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Notification marquée comme lue
+          schema:
+            $ref: '#/definitions/Notification'
+        403:
+          description: Propriétaire uniquement
+        404:
+          description: Notification non trouvée
+
+  /api/notification/{id}:
+    delete:
+      tags: [Notification]
+      summary: Supprimer une notification
+      description: Accessible au propriétaire ou au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Notification supprimée
+        403:
+          description: Propriétaire ou super_admin uniquement
+
+  # ==================== MEDIA ====================
+
+  /api/media:
+    post:
+      tags: [Media]
+      summary: Ajouter un média
+      description: |
+        Crée une entrée média avec une URL (Cloudinary ou autre).
+        Par défaut non publié (`is_published = false`).
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [title, file_url, file_type]
+            properties:
+              title:
+                type: string
+                example: Finale de coupe 2026
+              file_url:
+                type: string
+                example: https://res.cloudinary.com/demo/video/upload/finale.mp4
+              file_type:
+                type: string
+                enum: [image, video]
+                example: video
+              description:
+                type: string
+              competition_id:
+                type: integer
+              match_id:
+                type: integer
+              is_published:
+                type: boolean
+                default: false
+      responses:
+        201:
+          description: Média créé
+          schema:
+            $ref: '#/definitions/Media'
+    get:
+      tags: [Media]
+      summary: Lister les médias
+      description: Par défaut, retourne uniquement les médias publiés.
+      parameters:
+        - in: query
+          name: published
+          type: boolean
+          default: true
+          description: "false = inclure les non publiés (auth requise)"
+        - in: query
+          name: file_type
+          type: string
+          enum: [image, video]
+      responses:
+        200:
+          description: Liste des médias
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Media'
+
+  /api/media/{id}:
+    get:
+      tags: [Media]
+      summary: Obtenir un média
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données du média
+          schema:
+            $ref: '#/definitions/Media'
+        404:
+          description: Média non trouvé
+    delete:
+      tags: [Media]
+      summary: Supprimer un média
+      description: Accessible au propriétaire ou au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Média supprimé
+        403:
+          description: Propriétaire ou super_admin uniquement
+
+  /api/media/{id}/publish:
+    post:
+      tags: [Media]
+      summary: Publier un média
+      description: Rend le média visible publiquement. Réservé aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Média publié
+          schema:
+            $ref: '#/definitions/Media'
+        403:
+          description: Réservé aux admins
+
+  # ==================== ANNOUNCEMENTS ====================
+
+  /api/announcements:
+    post:
+      tags: [Announcements]
+      summary: Créer une annonce
+      description: Par défaut non publiée. Nécessite une action de publication explicite.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [title, content]
+            properties:
+              title:
+                type: string
+                example: Ouverture des inscriptions 2026
+              content:
+                type: string
+                example: Les inscriptions pour le championnat 2026 sont ouvertes...
+              competition_id:
+                type: integer
+              featured_image:
+                type: string
+                example: https://res.cloudinary.com/demo/image/upload/banner.jpg
+              is_published:
+                type: boolean
+                default: false
+      responses:
+        201:
+          description: Annonce créée
+          schema:
+            $ref: '#/definitions/News'
+    get:
+      tags: [Announcements]
+      summary: Lister les annonces
+      description: Par défaut, retourne uniquement les annonces publiées.
+      parameters:
+        - in: query
+          name: published
+          type: boolean
+          default: true
+        - in: query
+          name: competition_id
+          type: integer
+          description: Filtrer par compétition
+      responses:
+        200:
+          description: Liste des annonces
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/News'
+
+  /api/announcements/{id}:
+    get:
+      tags: [Announcements]
+      summary: Obtenir une annonce
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de l'annonce
+          schema:
+            $ref: '#/definitions/News'
+        404:
+          description: Annonce non trouvée
+    put:
+      tags: [Announcements]
+      summary: Modifier une annonce
+      description: Accessible à l'auteur ou au `super_admin`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              title:
+                type: string
+              content:
+                type: string
+              featured_image:
+                type: string
+      responses:
+        200:
+          description: Annonce mise à jour
+          schema:
+            $ref: '#/definitions/News'
+        403:
+          description: Auteur ou super_admin uniquement
+    delete:
+      tags: [Announcements]
+      summary: Supprimer une annonce
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Annonce supprimée
+        403:
+          description: Auteur ou super_admin uniquement
+
+  /api/announcements/{id}/publish:
+    post:
+      tags: [Announcements]
+      summary: Publier une annonce
+      description: Rend l'annonce visible publiquement. Réservé aux admins.
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Annonce publiée
+          schema:
+            $ref: '#/definitions/News'
+        403:
+          description: Réservé aux admins
+
+  # ==================== ARTICLE ====================
+
+  /api/article/admin/articles:
+    post:
+      tags: [Article]
+      summary: Créer un article (admin)
+      description: Crée un article de blog. Le statut par défaut est `draft`.
+      security:
+        - Bearer: []
+      parameters:
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [title, content]
+            properties:
+              title:
+                type: string
+                example: Top 5 des joueurs de la saison
+              content:
+                type: string
+                description: Contenu HTML de l'article
+                example: "<p>Cette saison a été exceptionnelle...</p>"
+              excerpt:
+                type: string
+                example: Résumé des meilleurs joueurs de la saison 2026
+              cover_image:
+                type: string
+                example: https://res.cloudinary.com/demo/image/upload/cover.jpg
+              slug:
+                type: string
+                description: Généré automatiquement si non fourni
+                example: top-5-joueurs-saison-2026
+              status:
+                type: string
+                enum: [draft, published]
+                default: draft
+      responses:
+        201:
+          description: Article créé
+          schema:
+            $ref: '#/definitions/Article'
+    get:
+      tags: [Article]
+      summary: Lister tous les articles (admin)
+      description: Retourne tous les articles incluant les brouillons.
+      security:
+        - Bearer: []
+      parameters:
+        - in: query
+          name: status
+          type: string
+          enum: [draft, published]
+          description: Filtrer par statut
+      responses:
+        200:
+          description: Liste de tous les articles
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Article'
+
+  /api/article/admin/articles/{id}:
+    get:
+      tags: [Article]
+      summary: Obtenir un article par ID (admin)
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        200:
+          description: Données de l'article
+          schema:
+            $ref: '#/definitions/Article'
+        404:
+          description: Article non trouvé
+    put:
+      tags: [Article]
+      summary: Modifier un article
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          schema:
+            type: object
+            properties:
+              title:
+                type: string
+              content:
+                type: string
+              excerpt:
+                type: string
+              cover_image:
+                type: string
+              slug:
+                type: string
+              status:
+                type: string
+                enum: [draft, published]
+      responses:
+        200:
+          description: Article mis à jour
+          schema:
+            $ref: '#/definitions/Article'
+        404:
+          description: Article non trouvé
+    delete:
+      tags: [Article]
+      summary: Supprimer un article
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+      responses:
+        204:
+          description: Article supprimé
+        404:
+          description: Article non trouvé
+
+  /api/article/articles:
+    get:
+      tags: [Article]
+      summary: Lister les articles publiés (public)
+      description: Retourne uniquement les articles avec le statut `published`.
+      responses:
+        200:
+          description: Articles publiés
+          schema:
+            type: array
+            items:
+              $ref: '#/definitions/Article'
+
+  /api/article/articles/{slug}:
+    get:
+      tags: [Article]
+      summary: Obtenir un article par son slug (public)
+      description: Accès public — retourne un article publié par son slug unique.
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          type: string
+          description: Slug URL de l'article
+          example: top-5-joueurs-saison-2026
+      responses:
+        200:
+          description: Données de l'article
+          schema:
+            $ref: '#/definitions/Article'
+        404:
+          description: Article non trouvé
+
+  # ==================== ENUM ====================
+
+  /api/enum/roles:
+    get:
+      tags: [Enum]
+      summary: Rôles disponibles
+      description: Retourne la liste de tous les rôles du système.
+      responses:
+        200:
+          description: Liste des rôles
+          schema:
+            type: array
+            items:
+              type: string
+            example: [super_admin, admin_competition, operator, referee, commissioner, team_captain, coach, player, spectator, journalist]
+
+  /api/enum/registrations:
+    get:
+      tags: [Enum]
+      summary: Statuts d'enregistrement
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Statuts possibles d'une demande d'enregistrement
+          schema:
+            type: array
+            items:
+              type: string
+            example: [pending, validated, rejected]
+
+  /api/enum/match_status:
+    get:
+      tags: [Enum]
+      summary: Statuts de match
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Statuts possibles d'un match
+          schema:
+            type: array
+            items:
+              type: string
+            example: [scheduled, in_progress, completed, cancelled]
+
+  /api/enum/card_types:
+    get:
+      tags: [Enum]
+      summary: Types de cartes
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Types de cartons
+          schema:
+            type: array
+            items:
+              type: string
+            example: [yellow, red]
+
+  /api/enum/vote_types:
+    get:
+      tags: [Enum]
+      summary: Types de votes
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Catégories de vote disponibles
+          schema:
+            type: array
+            items:
+              type: string
+            example: [player_of_day, player_of_competition]
+
+  /api/enum/payment_status:
+    get:
+      tags: [Enum]
+      summary: Statuts de paiement
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Statuts possibles d'un paiement
+          schema:
+            type: array
+            items:
+              type: string
+            example: [pending, completed, failed, refunded]

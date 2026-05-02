@@ -1,11 +1,15 @@
 import os
+from urllib.parse import quote_plus
 
 import boto3
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Config:
-    
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'PO2RxQLMzAMAnIZfRYbVtR8yfPPbfBSJ'
-    SECRET_JWT_KEY = "0ee06252f7b14d3ea2463pf9d4s65j41"
+
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    SECRET_JWT_KEY = os.environ.get('JWT_SECRET_KEY')
     DEBUG = True
     JWT_TOKEN_LOCATION = ['headers']
     JWT_HEADER_NAME = "Authorization"
@@ -46,44 +50,25 @@ class Config:
         return (
             f"postgresql://{user}:{password}"
             f"@{host}:{port}/{database}"
-            f"?sslmode=require"
+            f"?sslmode=disable"
         )
 
     POSTGRESQL_CONNEXION = {
-        'host': 'localhost',
-        'user': 'postgres',
-        'password': '12Monkeys#',
-        'database': 'oliboBd',
-        'port': '5432'
+        'host': os.environ.get('LOCAL_DB_HOST', 'localhost'),
+        'user': os.environ.get('LOCAL_DB_USER', 'postgres'),
+        'password': os.environ.get('LOCAL_DB_PASSWORD', ''),
+        'database': os.environ.get('LOCAL_DB_NAME', 'oliboBd'),
+        'port': os.environ.get('LOCAL_DB_PORT', '5432'),
     }
-
 
     DISTANT_DB_CONNEXION = {
-        'host': 'olibodb.cluster-cg18siw2sdzu.us-east-1.rds.amazonaws.com',      # PGHOST
-        'user': 'postgres',          # PGUSER
-        'password': 'TON_MOT_DE_PASSE', # à remplir
-        'database': 'postgres',      # PGDATABASE
-        'port': 5432,                # PGPORT
-        'sslmode': 'require'         # PGSSLMODE
+        'host': os.environ.get('PGHOST', ''),
+        'user': os.environ.get('PGUSER', ''),
+        'password': os.environ.get('PGPASSWORD', ''),
+        'database': os.environ.get('PGDATABASE', 'postgres'),
+        'port': int(os.environ.get('PGPORT', 5432)),
+        'sslmode': os.environ.get('PGSSLMODE', 'require'),
     }
-
-# AWS_DB_CONNEXION = {
-#     'host': 'database-1.cvu4s6ckuv7q.eu-north-1.rds.amazonaws.com',
-#     'user': 'admin',
-#     'password': '12Monkeys#',
-#     'database': 'dinhosellerbd',
-#     'port': '3306'
-# }
-
-# SQL_CONNEXION = {
-#     'host': 'localhost',
-#     'user': 'root',
-#     'password': '',
-#     'database': 'dinhosellerbd',
-#     'port': '3306'
-# }
-
-
 
 
 # class DevelopmentConfig(Config):
