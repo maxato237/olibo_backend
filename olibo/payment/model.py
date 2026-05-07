@@ -1,6 +1,6 @@
 from datetime import datetime
 from olibo import db
-from olibo.common.enums import PaymentStatus
+from olibo.common.enums import PaymentStatus, PAYMENT_STATUS_LABELS_FR, PAYMENT_TYPE_LABELS_FR
 
 class Payment(db.Model):
     __tablename__ = 'payments'
@@ -29,7 +29,9 @@ class Payment(db.Model):
             "amount": self.amount,
             "currency": self.currency,
             "payment_type": self.payment_type,
+            "payment_type_label": PAYMENT_TYPE_LABELS_FR.get(self.payment_type, self.payment_type),
             "status": self.status,
+            "status_label": PAYMENT_STATUS_LABELS_FR.get(self.status, self.status),
             "transaction_id": self.transaction_id,
             "payment_method": self.payment_method,
             "proof_url": self.proof_url,

@@ -1,6 +1,6 @@
 from datetime import datetime
 from olibo import db
-from olibo.common.enums import RegistrationStatus
+from olibo.common.enums import RegistrationStatus, REGISTRATION_STATUS_LABELS_FR, TEAM_MEMBER_ROLE_LABELS_FR
 
 
 class Team(db.Model):
@@ -11,10 +11,6 @@ class Team(db.Model):
     logo = db.Column(db.String(500)) 
     description = db.Column(db.Text)
     representative_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    captain_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    coach_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    is_registered = db.Column(db.Boolean, default=False, nullable=False)
-    registration_date = db.Column(db.DateTime)
     logo_public_id = db.Column(db.String(255))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -31,11 +27,8 @@ class Team(db.Model):
             "name": self.name,
             "logo": self.logo,
             "description": self.description,
-            "captain_id": self.captain_id,
+            "representative_id": self.representative_id,
             "logo_public_id": self.logo_public_id,
-            "coach_id": self.coach_id,
-            "is_registered": self.is_registered,
-            "registration_date": self.registration_date.isoformat() if self.registration_date else None,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
             "member_count": len(self.members),
@@ -45,12 +38,6 @@ class Team(db.Model):
 
 
 class TeamMember(db.Model):
-    """
-    Représente tout membre d'une équipe, qu'il soit joueur, entraîneur,
-    médecin, kinésithérapeute, etc.
-    Les champs liés au jeu (position, jersey_number, license_number) ne sont
-    renseignés que lorsque role == 'player'.
-    """
     __tablename__ = 'team_members'
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -86,8 +73,11 @@ class TeamMember(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relations
-    license = db.relationship('License', back_populates='member', uselist=False, cascade='all, delete-orphan')
+    licenses = db.relationship('License', back_populates='member', uselist=True, cascade='all, delete-orphan')
     match_events = db.relationship('MatchEvent', back_populates='member', cascade='all, delete-orphan')
+    incident_reports = db.relationship('IncidentReport', back_populates='member')
+    votes = db.relationship('Vote', back_populates='member', cascade='all, delete-orphan')
+    vote_results = db.relationship('VoteResult', back_populates='member', cascade='all, delete-orphan')
 
     @property
     def is_player(self) -> bool:
@@ -98,6 +88,7 @@ class TeamMember(db.Model):
             "id": self.id,
             "team_id": self.team_id,
             "role": self.role,
+            "role_label": TEAM_MEMBER_ROLE_LABELS_FR.get(self.role, self.role),
             "first_name": self.first_name,
             "last_name": self.last_name,
             "birth_date": self.birth_date.isoformat() if self.birth_date else None,
@@ -144,6 +135,7 @@ class TeamRegistration(db.Model):
             "id": self.id,
             "team_id": self.team_id,
             "status": self.status,
+            "status_label": REGISTRATION_STATUS_LABELS_FR.get(self.status, self.status),
             "submission_date": self.submission_date.isoformat(),
             "validation_date": self.validation_date.isoformat() if self.validation_date else None,
             "rejection_reason": self.rejection_reason,

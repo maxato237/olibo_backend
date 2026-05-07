@@ -1,5 +1,6 @@
 from olibo import db
 from datetime import datetime
+from olibo.common.enums import CompetitionType
 
 class Competition(db.Model):
     __tablename__ = 'competitions'
@@ -9,9 +10,14 @@ class Competition(db.Model):
     description = db.Column(db.Text)
     start_date = db.Column(db.DateTime, nullable=False)
     end_date = db.Column(db.DateTime, nullable=False)
-    season = db.Column(db.Integer, nullable=False)  # Numéro de saison (rétrocompatibilité)
+    season = db.Column(db.String(100), nullable=False) 
     season_id = db.Column(db.Integer, db.ForeignKey('seasons.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=True, nullable=False)
+    competition_type = db.Column(db.Enum(CompetitionType, native_enum=False, validate_strings=True), nullable=False)
+    ranking_rules = db.Column(db.JSON, nullable=False, default={
+        "preset": "ligue_1",
+        "tiebreaker_order": ["points", "head_to_head", "goal_difference", "goals_for", "fair_play"]
+    })
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -30,6 +36,8 @@ class Competition(db.Model):
             "season": self.season,
             "season_id": self.season_id,
             "is_active": self.is_active,
+            "competition_type": self.competition_type.value if self.competition_type is not None else None,
+            "ranking_rules": self.ranking_rules,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }

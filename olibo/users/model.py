@@ -1,5 +1,6 @@
 from datetime import datetime
 from olibo import db
+from olibo.common.enums import ROLE_LABELS_FR
 
 
 class User(db.Model):
@@ -17,8 +18,6 @@ class User(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relations
-    team_captain_of = db.relationship('Team', backref='captain', foreign_keys='Team.captain_id', uselist=False)
-    team_coach_of = db.relationship('Team', backref='coach', foreign_keys='Team.coach_id', uselist=False)
     team_representative_of = db.relationship('Team', backref='representative', foreign_keys='Team.representative_id', uselist=False)
     tokens = db.relationship('Token', backref='user', cascade='all, delete-orphan')
     notifications = db.relationship('Notification', backref='user', cascade='all, delete-orphan')
@@ -35,6 +34,7 @@ class User(db.Model):
             "last_name": self.last_name,
             "phone": self.phone,
             "role": self.role,
+            "role_label": ROLE_LABELS_FR.get(self.role, self.role),
             "is_active": self.is_active,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),

@@ -50,9 +50,9 @@ def register():
         if data['role'] not in valid_roles:
             return jsonify({'error': f'Invalid role. Allowed: {valid_roles}'}), 400
 
-        ALLOWED_SELF_REGISTER_ROLES = ['team_captain', 'coach', 'spectator']
+        ALLOWED_SELF_REGISTER_ROLES = ['team_captain', 'team_manager', 'coach', 'spectator']
         if data['role'] not in ALLOWED_SELF_REGISTER_ROLES:
-            return jsonify({'error': 'Invalid role for self-registration. Allowed: team_captain, coach, spectator'}), 403
+            return jsonify({'error': 'Invalid role for self-registration. Allowed: team_captain, team_manager, coach, spectator'}), 403
 
         if User.query.filter_by(email=data['email']).first():
             return jsonify({'error': 'Email already exists'}), 409

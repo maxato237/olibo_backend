@@ -5,8 +5,12 @@ from olibo import db
 class License(db.Model):
     __tablename__ = 'licenses'
 
+    __table_args__ = (
+        db.UniqueConstraint('member_id', 'season_id', name='uq_licenses_member_season'),
+    )
+
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
-    member_id = db.Column(db.Integer, db.ForeignKey('team_members.id'), nullable=False, unique=True)
+    member_id = db.Column(db.Integer, db.ForeignKey('team_members.id'), nullable=False)
     season_id = db.Column(db.Integer, db.ForeignKey('seasons.id'), nullable=True)
     license_number = db.Column(db.String(100), unique=True, nullable=False)
     issue_date = db.Column(db.DateTime, nullable=False)
@@ -17,7 +21,7 @@ class License(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relations
-    member = db.relationship('TeamMember', back_populates='license')
+    member = db.relationship('TeamMember', back_populates='licenses')
     season = db.relationship('Season', back_populates='licenses')
 
     def to_dict(self):

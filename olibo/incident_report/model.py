@@ -20,7 +20,7 @@ class IncidentReport(db.Model):
 
     # Relations
     match = db.relationship('Match')
-    member = db.relationship('TeamMember', foreign_keys=[member_id]) 
+    member = db.relationship('TeamMember', foreign_keys=[member_id], back_populates='incident_reports')
 
     def to_dict(self):
         return {

@@ -72,7 +72,7 @@ def create_users():
         'operator',
         'referee',
         'commissioner',
-        'team_captain',
+        'team_manager',
         'coach',
     ]
 
@@ -117,9 +117,7 @@ def create_teams(users):
         "Victory Squad",
     ]
 
-    coaches     = [u for u in users if u.role == 'coach']
-    captains    = [u for u in users if u.role == 'team_captain']
-    reps        = [u for u in users if u.role in ['operator', 'team_captain']]
+    reps = [u for u in users if u.role in ['operator', 'team_captain']]
 
     teams = []
     for i, name in enumerate(team_names[:TEAMS_COUNT]):
@@ -127,13 +125,9 @@ def create_teams(users):
         team_obj = Team(
             name=name,
             logo=team_logo_url(slug),
-            logo_public_id=None,          # pas de Cloudinary en seed
+            logo_public_id=None,
             description=fake.sentence(),
-            captain_id=captains[i % len(captains)].id if captains else None,
-            coach_id=coaches[i % len(coaches)].id if coaches else None,
             representative_id=reps[i % len(reps)].id if reps else None,
-            is_registered=True,
-            registration_date=datetime.utcnow() - timedelta(days=random.randint(30, 90)),
         )
         db.session.add(team_obj)
         teams.append(team_obj)
@@ -152,14 +146,19 @@ def create_members(teams):
     print("Creating team members...")
     from olibo.team.model import TeamMember
 
-    positions = ['goalkeeper', 'defender', 'midfielder', 'forward']
-    staff_roles = ['coach', 'assistant_coach', 'fitness_coach', 'doctor', 'physiotherapist', 'manager']
+    positions = [
+        'GK', 'CB', 'RCB', 'LCB', 'RB', 'LB', 'RWB', 'LWB',
+        'CDM', 'CM', 'CAM', 'RM', 'LM', 'BOX_TO_BOX',
+        'RW', 'LW', 'ST', 'CF', 'SECOND_STRIKER', 'FALSE_9',
+    ]
     nationalities = [
         ('CMR', 'Cameroun'), ('SEN', 'Sénégal'), ('CIV', "Côte d'Ivoire"),
-        ('GHA', 'Ghana'), ('NGA', 'Nigeria'), ('MLI', 'Mali'), ('GIN', 'Guinée'),
+        ('GHA', 'Ghana'), ('NGA', 'Nigeria'), ('MLI', 'Mali'), ('GUI', 'Guinée'),
+        ('MAR', 'Maroc'), ('ALG', 'Algérie'),
     ]
-    feet = ['Droit', 'Gauche', 'Les deux']
-    categories = ['Senior', 'U23', 'U18', 'U15']
+    feet = ['Droit', 'Gauche', 'Ambidextre']
+    categories = ['Senior', 'Junior', 'Espoir', 'Cadet', 'Minime']
+    non_unique_staff = ['fitness_coach', 'doctor', 'physiotherapist', 'other']
 
     all_members = []
     all_players = []
@@ -198,13 +197,14 @@ def create_members(teams):
             all_members.append(member)
             all_players.append(member)
 
-        # --- Staff (4 membres) ---
-        for s in range(4):
+        # --- Staff (4 membres) : 1 coach + 1 assistant + 2 rôles non-uniques ---
+        staff_roles_for_team = ['coach', 'assistant_coach'] + random.sample(non_unique_staff, 2)
+        for s, staff_role in enumerate(staff_roles_for_team):
             seed = f"team{team_obj.id}_staff{s}"
             nat_code, nat_label = random.choice(nationalities)
             member = TeamMember(
                 team_id=team_obj.id,
-                role=random.choice(staff_roles),
+                role=staff_role,
                 first_name=fake.first_name(),
                 last_name=fake.last_name(),
                 photo=player_photo_url(seed),
@@ -292,7 +292,10 @@ def create_competitions(seasons=None):
     from olibo.competition.model import Competition
 
     competitions = []
-    comp_names = ['Saison 2024', 'Saison 2025', 'Coupe Spéciale']
+    from olibo.common.enums import CompetitionType
+
+    comp_names = ['Saison 2024', 'Saison 2025']
+    comp_types = [CompetitionType.LEAGUE, CompetitionType.LEAGUE]
 
     for i, name in enumerate(comp_names):
         start_date = datetime.utcnow() - timedelta(days=random.randint(60, 180))
@@ -305,6 +308,7 @@ def create_competitions(seasons=None):
             season=2024 + i,
             season_id=season_ref.id if season_ref else None,
             is_active=(i == 0),
+            competition_type=comp_types[i]
         )
         db.session.add(competition)
         competitions.append(competition)
@@ -334,6 +338,7 @@ def create_matches(competitions, teams, users):
 
             match = Match(
                 competition_id=comp.id,
+                season_id=comp.season_id,
                 home_team_id=home_team.id,
                 away_team_id=away_team.id,
                 scheduled_date=match_date,

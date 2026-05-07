@@ -63,7 +63,7 @@ def get_all_users():
     try:
         current_user = get_authorized_user()
 
-        if current_user.role not in ['super_admin', 'admin_competition', 'operator']:
+        if current_user.role not in ['super_admin', 'admin_competition', 'operator', 'team_manager']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         page = request.args.get('page', 1, type=int)
@@ -98,7 +98,7 @@ def get_user(user_id):
     try:
         current_user = get_authorized_user()
 
-        if current_user.id != user_id and current_user.role not in ['super_admin', 'admin_competition']:
+        if current_user.id != user_id and current_user.role not in ['super_admin', 'admin_competition', 'team_manager']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         user = User.query.get(user_id)

@@ -1,50 +1,70 @@
 from flask import Blueprint
-from flask_jwt_extended import jwt_required
-from olibo.common.enums import UserRole, VoteType
-from olibo.common.enums import RegistrationStatus
-from olibo.common.enums import MatchStatus
-from olibo_models import CardType
-from olibo.common.enums import PaymentStatus
+from olibo.common.enums import (
+    UserRole, RegistrationStatus, MatchStatus, CardType, VoteType, PaymentStatus,
+    ROLE_LABELS_FR, REGISTRATION_STATUS_LABELS_FR, MATCH_STATUS_LABELS_FR,
+    CARD_TYPE_LABELS_FR, VOTE_TYPE_LABELS_FR, PAYMENT_STATUS_LABELS_FR,
+    RankingPreset, RANKING_PRESET_RULES, RANKING_PRESET_LABELS_FR, RANKING_TIEBREAKER_LABELS_FR,
+)
 
 enum = Blueprint('enum', __name__)
 
+
 @enum.route('/roles', methods=['GET'])
 def get_roles():
-    roles = [
-        {
-            "label": role.value.replace('_', ' ').title(),
-            "value": role.value
-        }
-        for role in UserRole
-    ]
-    return {"roles": roles}, 200
+    return {"roles": [
+        {"value": r.value, "label": ROLE_LABELS_FR.get(r.value, r.value)}
+        for r in UserRole
+    ]}, 200
+
 
 @enum.route('/registrations', methods=['GET'])
-@jwt_required()
 def get_registration_statuses():
-    statuses = [status.value for status in RegistrationStatus]
-    return {"registration_status": statuses}, 200
+    return {"registration_status": [
+        {"value": s.value, "label": REGISTRATION_STATUS_LABELS_FR.get(s.value, s.value)}
+        for s in RegistrationStatus
+    ]}, 200
+
 
 @enum.route('/match_status', methods=['GET'])
-@jwt_required()
 def get_match_statuses():
-    statuses = [status.value for status in MatchStatus]
-    return {"match_status": statuses}, 200
+    return {"match_status": [
+        {"value": s.value, "label": MATCH_STATUS_LABELS_FR.get(s.value, s.value)}
+        for s in MatchStatus
+    ]}, 200
+
 
 @enum.route('/card_types', methods=['GET'])
-@jwt_required()
 def get_card_types():
-    card_types = [card_type.value for card_type in CardType]
-    return {"card_types": card_types}, 200
+    return {"card_types": [
+        {"value": c.value, "label": CARD_TYPE_LABELS_FR.get(c.value, c.value)}
+        for c in CardType
+    ]}, 200
+
 
 @enum.route('/vote_types', methods=['GET'])
-@jwt_required()
 def get_vote_types():
-    vote_types = [vote_type.value for vote_type in VoteType]
-    return {"vote_types": vote_types}, 200
+    return {"vote_types": [
+        {"value": v.value, "label": VOTE_TYPE_LABELS_FR.get(v.value, v.value)}
+        for v in VoteType
+    ]}, 200
+
 
 @enum.route('/payment_status', methods=['GET'])
-@jwt_required()
 def get_payment_status():
-    payment_statuses = [status.value for status in PaymentStatus]
-    return {"payment_statuses": payment_statuses}, 200
+    return {"payment_statuses": [
+        {"value": s.value, "label": PAYMENT_STATUS_LABELS_FR.get(s.value, s.value)}
+        for s in PaymentStatus
+    ]}, 200
+
+
+@enum.route('/ranking_presets', methods=['GET'])
+def get_ranking_presets():
+    return {"ranking_presets": [
+        {
+            "value":             p.value,
+            "label":             RANKING_PRESET_LABELS_FR.get(p.value, p.value),
+            "tiebreaker_order":  RANKING_PRESET_RULES.get(p.value, []),
+            "tiebreaker_labels": RANKING_TIEBREAKER_LABELS_FR,
+        }
+        for p in RankingPreset
+    ]}, 200

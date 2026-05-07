@@ -89,6 +89,7 @@ def create_app(config_class=None):
         from olibo.voting.routes import voting
         from olibo.auth.routes import auth
         from olibo.license.routes import license
+        from olibo.license.render_routes import license_render
         from olibo.common.routes import enum
         from olibo.article.routes import article
 
@@ -106,6 +107,7 @@ def create_app(config_class=None):
         app.register_blueprint(voting, url_prefix='/api/voting')
         app.register_blueprint(auth, url_prefix='/api/auth')
         app.register_blueprint(license, url_prefix='/api/license')
+        app.register_blueprint(license_render)
         app.register_blueprint(enum, url_prefix='/api/enum')
         app.register_blueprint(article, url_prefix='/api/article')
 

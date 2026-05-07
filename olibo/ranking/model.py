@@ -7,7 +7,7 @@ class Ranking(db.Model):
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     competition_id = db.Column(db.Integer, db.ForeignKey('competitions.id'), nullable=False)
     team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
-    position = db.Column(db.Integer, nullable=False)
+    position = db.Column(db.Integer, nullable=True)
     matches_played = db.Column(db.Integer, default=0, nullable=False)
     wins = db.Column(db.Integer, default=0, nullable=False)
     draws = db.Column(db.Integer, default=0, nullable=False)
@@ -15,7 +15,10 @@ class Ranking(db.Model):
     goals_for = db.Column(db.Integer, default=0, nullable=False)
     goals_against = db.Column(db.Integer, default=0, nullable=False)
     goal_difference = db.Column(db.Integer, default=0, nullable=False)
-    points = db.Column(db.Integer, default=0, nullable=False)
+    points = db.Column(db.Integer, default=0, nullable=True)
+    yellow_cards = db.Column(db.Integer, default=0, nullable=False)
+    red_cards    = db.Column(db.Integer, default=0, nullable=False)
+    clean_sheets = db.Column(db.Integer, default=0, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
     # Relations
@@ -35,6 +38,9 @@ class Ranking(db.Model):
             "goals_against": self.goals_against,
             "goal_difference": self.goal_difference,
             "points": self.points,
+            "yellow_cards": self.yellow_cards,
+            "red_cards": self.red_cards,
+            "clean_sheets": self.clean_sheets,
             "updated_at": self.updated_at.isoformat()
         }
 

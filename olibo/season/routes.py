@@ -6,8 +6,13 @@ from sqlalchemy import func
 
 from olibo import db
 from olibo.common.helpers import get_authorized_user
+from olibo.competition.model import Competition
+from olibo.license.model import License
 from olibo.license.routes import revoke_season_licenses
+from olibo.match_sheet.model import Match, MatchEvent
+from olibo.ranking.model import Ranking
 from olibo.season.model import Season
+from olibo.team.model import Team, TeamMember
 
 seasons = Blueprint('seasons', __name__)
 
@@ -113,12 +118,14 @@ def update_season(season_id):
         if 'end_date' in data:
             season.end_date = date.fromisoformat(data['end_date'])
         if 'is_active' in data:
-            if data['is_active']:
-                Season.query.filter(Season.id != season_id).update({'is_active': False})
-            elif season.is_active and not data['is_active']:
-                revoke_season_licenses(season_id)
-            season.is_active = data['is_active']
-
+            if season.is_active :
+                if not data['is_active']:
+                    season.is_active = data['is_active']
+                    revoke_season_licenses(season_id)
+            else :
+                if data['is_active']:
+                    return jsonify({'error', 'You cant turn inactive season'}), 409
+                
         db.session.commit()
 
         return jsonify({
@@ -133,12 +140,6 @@ def update_season(season_id):
 
 @seasons.route('/<int:season_id>/teams/stats', methods=['GET'])
 def get_season_team_stats(season_id):
-    from olibo.competition.model import Competition
-    from olibo.license.model import License
-    from olibo.match_sheet.model import Match, MatchEvent
-    from olibo.ranking.model import Ranking
-    from olibo.team.model import Team, TeamMember
-
     try:
         season = Season.query.get(season_id)
         if not season:
@@ -158,8 +159,6 @@ def get_season_team_stats(season_id):
                 func.sum(Ranking.goals_for).label('goals_for'),
                 func.sum(Ranking.goals_against).label('goals_against'),
                 func.sum(Ranking.goal_difference).label('goal_difference'),
-                func.sum(Ranking.points).label('points'),
-                func.min(Ranking.position).label('best_position'),
             )
             .join(Competition, Competition.id == Ranking.competition_id)
             .filter(Competition.season_id == season_id)
@@ -257,7 +256,6 @@ def get_season_team_stats(season_id):
                 'team_name': team.name,
                 'team_logo': team.logo,
                 'ranking': {
-                    'best_position':   row.best_position,
                     'matches_played':  row.matches_played  or 0,
                     'wins':            row.wins            or 0,
                     'draws':           row.draws           or 0,
@@ -265,7 +263,7 @@ def get_season_team_stats(season_id):
                     'goals_for':       row.goals_for       or 0,
                     'goals_against':   row.goals_against   or 0,
                     'goal_difference': row.goal_difference or 0,
-                    'points':          row.points          or 0,
+
                 },
                 'discipline': {
                     'yellow_cards': yellow_map.get(row.team_id, 0),
@@ -278,7 +276,7 @@ def get_season_team_stats(season_id):
                 },
             })
 
-        results.sort(key=lambda x: (x['ranking']['points'], x['ranking']['goal_difference']), reverse=True)
+        results.sort(key=lambda x: (x['ranking']['goal_difference']), reverse=True)
 
         return jsonify({
             'season': season.to_dict(),
@@ -293,7 +291,7 @@ def get_season_team_stats(season_id):
 @seasons.route('/<int:season_id>', methods=['DELETE'])
 @jwt_required()
 def delete_season(season_id):
-    try:
+    # try:
         user = get_authorized_user()
         if user.role != 'super_admin':
             return jsonify({'error': 'Unauthorized'}), 403
@@ -301,12 +299,16 @@ def delete_season(season_id):
         season = Season.query.get(season_id)
         if not season:
             return jsonify({'error': 'Season not found'}), 404
+        
+        competitions_count = Competition.query.filter_by(season_id=season.id).count()
+        if competitions_count > 0:
+            return jsonify({'error': 'Cannot delete season with linked competitions'}), 400
 
         revoke_season_licenses(season_id)
         db.session.delete(season)
         db.session.commit()
         return '', 204
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     db.session.rollback()
+    #     return jsonify({'error': str(e)}), 500

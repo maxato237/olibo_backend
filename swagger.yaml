@@ -316,10 +316,15 @@ definitions:
       is_active:
         type: boolean
         example: true
+      competition_type:
+        type: string
+        enum: [league, championship]
+        example: league
+        description: Type de compétition (league, championship)
 
   CompetitionCreate:
     type: object
-    required: [name, start_date, end_date, season]
+    required: [name, start_date, end_date, season, competition_type]
     properties:
       name:
         type: string
@@ -338,7 +343,11 @@ definitions:
       season_id:
         type: integer
         description: Référence optionnelle vers la saison (Season.id)
-        example: 1
+      competition_type:
+        type: string
+        enum: [league, championship]
+        example: league
+        description: Type de compétition (league, championship)
       description:
         type: string
         example: Championnat annuel
@@ -366,15 +375,10 @@ definitions:
       representative:
         type: string
         example: Pierre Kamga
-      is_registered:
-        type: boolean
-        example: false
-      captain_id:
+      representative_id:
         type: integer
-        example: 5
-      coach_id:
-        type: integer
-        example: 3
+        example: 4
+        description: ID de l'utilisateur représentant de l'équipe
 
   TeamMember:
     type: object
@@ -524,6 +528,10 @@ definitions:
       competition_id:
         type: integer
         example: 1
+      season_id:
+        type: integer
+        description: Déduit automatiquement de la compétition si non fourni
+        example: 2
       home_team_id:
         type: integer
         example: 1
@@ -791,7 +799,7 @@ definitions:
         example: 1
       title:
         type: string
-        example: Finale de la coupe Olibo 2026
+        example: Championnat Olibo 2026
       file_url:
         type: string
         example: https://res.cloudinary.com/demo/image/upload/finale.jpg
@@ -1563,6 +1571,10 @@ paths:
         Utilise `multipart/form-data` pour l'upload du logo.
         Les membres initiaux peuvent être inclus via des champs indexés (`members[0][first_name]`, etc.).
         Logo limité à **2 Mo** (redimensionné à 500x500 via Cloudinary).
+
+        **Création automatique de la demande d'inscription** : une `TeamRegistration` est créée
+        automatiquement à la création de l'équipe. Le statut est `validated` si le créateur est
+        `super_admin` ou `admin_competition`, sinon `pending`.
       security:
         - Bearer: []
       consumes:
@@ -1578,23 +1590,12 @@ paths:
           type: file
           description: Logo de l'équipe (image, max 2 Mo)
         - in: formData
-          name: representative
-          type: string
-          description: Nom du représentant officiel
+          name: representative_id
+          type: integer
+          description: ID de l'utilisateur représentant officiel
         - in: formData
           name: description
           type: string
-        - in: formData
-          name: captain_id
-          type: integer
-          description: ID de l'utilisateur capitaine
-        - in: formData
-          name: coach_id
-          type: integer
-          description: ID de l'utilisateur entraîneur
-        - in: formData
-          name: is_registered
-          type: boolean
       responses:
         201:
           description: Équipe créée
@@ -1611,11 +1612,60 @@ paths:
       summary: Lister toutes les équipes
       responses:
         200:
-          description: Liste des équipes
+          description: Liste des équipes avec leur demande d'enregistrement
           schema:
-            type: array
-            items:
-              $ref: '#/definitions/Team'
+            type: object
+            properties:
+              message:
+                type: string
+                example: Teams retrieved successfully
+              total:
+                type: integer
+                example: 12
+              teams:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/definitions/Team'
+                    - type: object
+                      properties:
+                        registration:
+                          $ref: '#/definitions/TeamRegistration'
+
+  /api/team/my-teams:
+    get:
+      tags: [Team]
+      summary: Équipes du représentant connecté
+      description: |
+        Retourne les équipes dont l'utilisateur authentifié est le représentant.
+
+        **Exception** : les rôles `super_admin`, `admin_competition` et `operator`
+        reçoivent **l'intégralité** des équipes en base de données.
+      security:
+        - Bearer: []
+      responses:
+        200:
+          description: Liste des équipes avec leur demande d'enregistrement
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: Teams retrieved successfully
+              total:
+                type: integer
+                example: 3
+              teams:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/definitions/Team'
+                    - type: object
+                      properties:
+                        registration:
+                          $ref: '#/definitions/TeamRegistration'
+        401:
+          description: Token manquant ou invalide
 
   /api/team/{id}:
     get:
@@ -1628,7 +1678,7 @@ paths:
           type: integer
       responses:
         200:
-          description: Données de l'équipe incluant la liste des membres
+          description: Données de l'équipe incluant membres et enregistrement
           schema:
             allOf:
               - $ref: '#/definitions/Team'
@@ -1638,6 +1688,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/definitions/TeamMember'
+                  registration:
+                    $ref: '#/definitions/TeamRegistration'
         404:
           description: Équipe non trouvée
     put:
@@ -1660,9 +1712,6 @@ paths:
         - in: formData
           name: description
           type: string
-        - in: formData
-          name: is_registered
-          type: boolean
         - in: formData
           name: logo
           type: file
@@ -2015,6 +2064,51 @@ paths:
         403:
           description: Permissions insuffisantes
 
+  /api/team/registrations/{reg_id}/status:
+    patch:
+      tags: [Team]
+      summary: Modifier le statut d'une demande d'inscription
+      description: |
+        Permet de passer le statut d'une `TeamRegistration` à `pending`, `validated` ou `rejected`.
+
+        - **→ validated** : valide l'inscription de l'équipe et génère
+          automatiquement les licences des joueurs actifs sans licence pour la saison active.
+        - **→ rejected** : rejette l'inscription de l'équipe et enregistre la raison.
+        - **→ pending** : remet la demande en attente (ex. après un rejet).
+      security:
+        - Bearer: []
+      parameters:
+        - in: path
+          name: reg_id
+          required: true
+          type: integer
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            required: [status]
+            properties:
+              status:
+                type: string
+                enum: [pending, validated, rejected]
+                example: validated
+              rejection_reason:
+                type: string
+                description: Obligatoire si status=rejected
+                example: Dossier incomplet
+      responses:
+        200:
+          description: Statut mis à jour
+          schema:
+            $ref: '#/definitions/TeamRegistration'
+        400:
+          description: Statut invalide
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Demande introuvable
+
   # ==================== LICENSE ====================
 
   /api/license:
@@ -2311,6 +2405,74 @@ paths:
         403:
           description: Permissions insuffisantes
 
+  /api/license/{id}/export:
+    get:
+      tags: [License]
+      summary: Exporter une licence en ZIP (recto + verso PNG)
+      description: |
+        Génère via Playwright deux captures PNG haute résolution de la carte de
+        licence (recto et verso) et les retourne dans une archive ZIP.
+
+        **Rôles requis :** `super_admin`, `admin_competition`
+      security:
+        - Bearer: []
+      produces:
+        - application/zip
+      parameters:
+        - in: path
+          name: id
+          required: true
+          type: integer
+          description: Identifiant de la licence
+      responses:
+        200:
+          description: Archive ZIP contenant `recto.png` et `verso.png`
+          headers:
+            Content-Disposition:
+              type: string
+              description: "attachment; filename=\"<license_number>.zip\""
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Licence non trouvée
+        500:
+          description: Erreur de génération (Playwright ou DB)
+
+  /api/license/team/{team_id}/export:
+    get:
+      tags: [License]
+      summary: Exporter toutes les licences d'une équipe en ZIP
+      description: |
+        Génère les cartes PNG (recto + verso) de toutes les licences actives de
+        l'équipe pour la saison en cours, et les regroupe dans une archive ZIP.
+        Chaque joueur dispose de son propre sous-dossier :
+        `<Nom>_<Prénom>_<numéro_licence>/recto.png` et `verso.png`.
+
+        **Rôles requis :** `super_admin`, `admin_competition`
+      security:
+        - Bearer: []
+      produces:
+        - application/zip
+      parameters:
+        - in: path
+          name: team_id
+          required: true
+          type: integer
+          description: Identifiant de l'équipe
+      responses:
+        200:
+          description: Archive ZIP contenant les cartes PNG de tous les joueurs
+          headers:
+            Content-Disposition:
+              type: string
+              description: "attachment; filename=\"licences_<team_name>.zip\""
+        403:
+          description: Permissions insuffisantes
+        404:
+          description: Équipe non trouvée
+        500:
+          description: Erreur de génération (Playwright ou DB)
+
   # ==================== MATCH ====================
 
   /api/match_sheet/matches:
@@ -2331,6 +2493,10 @@ paths:
               competition_id:
                 type: integer
                 example: 1
+              season_id:
+                type: integer
+                description: Optionnel — déduit de la compétition si absent
+                example: 2
               home_team_id:
                 type: integer
                 example: 1
@@ -2364,12 +2530,16 @@ paths:
     get:
       tags: [Match]
       summary: Lister les matchs
-      description: Accessible publiquement. Filtrable par compétition et statut.
+      description: Accessible publiquement. Filtrable par compétition, saison et statut.
       parameters:
         - in: query
           name: competition_id
           type: integer
           description: Filtrer par compétition
+        - in: query
+          name: season_id
+          type: integer
+          description: Filtrer par saison
         - in: query
           name: status
           type: string
@@ -3158,7 +3328,7 @@ paths:
             properties:
               title:
                 type: string
-                example: Finale de coupe 2026
+                example: Match de championnat 2026
               file_url:
                 type: string
                 example: https://res.cloudinary.com/demo/video/upload/finale.mp4

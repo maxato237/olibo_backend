@@ -23,7 +23,7 @@ def get_competition_rankings(comp_id):
             Ranking.query
             .filter_by(competition_id=comp_id)
             .options(joinedload(Ranking.team))
-            .order_by(Ranking.position)
+            .order_by(Ranking.position.nulls_last())
             .all()
         )
 
@@ -34,10 +34,7 @@ def get_competition_rankings(comp_id):
                 'name': r.team.name,
                 'logo': r.team.logo,
                 'description': r.team.description,
-                'captain_id': r.team.captain_id,
-                'coach_id': r.team.coach_id,
-                'is_registered': r.team.is_registered,
-                'registration_date': r.team.registration_date.isoformat() if r.team.registration_date else None,
+                'representative_id': r.team.representative_id,
                 'created_at': r.team.created_at.isoformat(),
                 'updated_at': r.team.updated_at.isoformat(),
             }
@@ -94,7 +91,7 @@ def update_rankings():
 
         rankings = Ranking.query.filter_by(
             competition_id=data['competition_id']
-        ).order_by(Ranking.position).all()
+        ).order_by(Ranking.position.nulls_last()).all()
 
         return jsonify({
             'message': 'Rankings recalculated successfully',

@@ -4,10 +4,12 @@ from datetime import datetime
 from sqlalchemy.orm import joinedload
 from olibo import db
 from olibo.common.helpers import get_authorized_user
+from olibo.common.enums import CompetitionType
 from olibo.competition.model import Competition
 from olibo.match_sheet.model import Match
 from olibo.ranking.model import Ranking
 from olibo.users.model import User
+from olibo.season.model import Season
 
 
 competition = Blueprint('competition', __name__)
@@ -29,7 +31,7 @@ def get_active_competition():
 @competition.route('', methods=['POST'])
 @jwt_required()
 def create_competition():
-    try:
+    # try:
         user = get_authorized_user()
 
         if user.role not in ['super_admin', 'admin_competition']:
@@ -37,8 +39,13 @@ def create_competition():
 
         data = request.get_json()
 
-        if not all(k in data for k in ['name', 'start_date', 'end_date', 'season']):
+        if not all(k in data for k in ['name', 'start_date', 'end_date', 'season', 'competition_type']):
             return jsonify({'error': 'Missing required fields'}), 400
+
+        try:
+            competition_type = CompetitionType(data['competition_type'])
+        except ValueError:
+            return jsonify({'error': 'Invalid competition_type value'}), 400
 
         start = datetime.fromisoformat(data['start_date'])
         end = datetime.fromisoformat(data['end_date'])
@@ -56,8 +63,11 @@ def create_competition():
             description=data.get('description'),
             start_date=start,
             end_date=end,
+            season_id=data['season_id'],
             season=data['season'],
-            is_active=data.get('is_active', False)
+            is_active=data.get('is_active', False),
+            competition_type=competition_type,
+            **({'ranking_rules': data['ranking_rules']} if 'ranking_rules' in data else {}),
         )
 
         db.session.add(comp)
@@ -68,9 +78,9 @@ def create_competition():
             'competition': comp.to_dict()
         }), 201
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     db.session.rollback()
+    #     return jsonify({'error': str(e)}), 500
 
 
 # Get all competitions
@@ -111,14 +121,15 @@ def get_competition(comp_id):
 @competition.route('/<int:comp_id>', methods=['PUT'])
 @jwt_required()
 def update_competition(comp_id):
-    try:
+    # try:
         user = get_authorized_user()
 
         if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         comp = Competition.query.get(comp_id)
-
+        season = Season.query.filter_by(id = comp.season_id).first().to_dict()
+        
         if not comp:
             return jsonify({'error': 'Competition not found'}), 404
 
@@ -132,10 +143,22 @@ def update_competition(comp_id):
             comp.start_date = datetime.fromisoformat(data['start_date'])
         if 'end_date' in data:
             comp.end_date = datetime.fromisoformat(data['end_date'])
+        if 'season' in data:
+            comp.season = data['season']
+        if 'season_id' in data :
+            comp.season_id = data['season_id']
         if 'is_active' in data:
-            if data['is_active']:
-                Competition.query.filter(Competition.id != comp_id).update({'is_active': False})
-            comp.is_active = data['is_active']
+            if season['is_active'] or (not season['is_active'] and not data['is_active']):
+                comp.is_active = data['is_active']
+            else:
+                return jsonify({'error': 'Season inactive'} ), 400
+        if 'competition_type' in data:
+            try:
+                comp.competition_type = CompetitionType(data['competition_type'])
+            except ValueError:
+                return jsonify({'error': 'Invalid competition_type value'}), 400
+        if 'ranking_rules' in data:
+            comp.ranking_rules = data['ranking_rules']
 
         comp.updated_at = datetime.utcnow()
         db.session.commit()
@@ -145,9 +168,9 @@ def update_competition(comp_id):
             'competition': comp.to_dict()
         }), 200
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     db.session.rollback()
+    #     return jsonify({'error': str(e)}), 500
 
 
 # Delete competition

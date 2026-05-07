@@ -13,8 +13,8 @@ class Season(db.Model):
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
-    competitions = db.relationship('Competition', back_populates='season_obj', lazy=True)
-    licenses = db.relationship('License', back_populates='season', lazy=True)
+    competitions = db.relationship('Competition', back_populates='season_obj', cascade='all, delete-orphan', lazy=True)
+    licenses = db.relationship('License', back_populates='season', cascade='all, delete-orphan', lazy=True)
 
     def to_dict(self):
         return {

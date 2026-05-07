@@ -58,9 +58,6 @@ def create_license():
         if not member.is_player:
             return jsonify({'error': 'Licenses can only be issued to players'}), 400
 
-        if License.query.filter_by(member_id=data['member_id']).first():
-            return jsonify({'error': 'This member already has a license'}), 409
-
         issue_date = datetime.fromisoformat(data['issue_date'])
         expiry_date = datetime.fromisoformat(data['expiry_date'])
 
@@ -78,6 +75,9 @@ def create_license():
             season_id = season.id if season else None
 
         season_label = season.label if season else str(datetime.utcnow().year)
+
+        if License.query.filter_by(member_id=data['member_id'], season_id=season_id).first():
+            return jsonify({'error': 'This member already has a license for this season'}), 409
 
         # Génération du numéro de licence si absent
         if not member.license_number:
@@ -112,7 +112,7 @@ def get_all_licenses():
         current_user = get_authorized_user()
 
         if current_user.role not in ['super_admin', 'admin_competition', 'operator']:
-            team = Team.query.filter_by(captain_id=current_user.id).first()
+            team = Team.query.filter_by(representative_id=current_user.id).first()
             if not team:
                 return jsonify({'error': 'Unauthorized'}), 403
             member_ids = [m.id for m in TeamMember.query.filter_by(team_id=team.id).all()]
@@ -370,6 +370,59 @@ def renew_license(license_id):
 
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@license.route('/<int:license_id>/export', methods=['GET'])
+@jwt_required()
+def export_license(license_id):
+    try:
+        user = get_authorized_user()
+        if user.role not in ['super_admin', 'admin_competition']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        license_obj = License.query.get(license_id)
+        if not license_obj:
+            return jsonify({'error': 'License not found'}), 404
+
+        from olibo.license.export_service import LicenseExportService
+        zip_bytes = LicenseExportService().export_single_zip(license_id)
+
+        response = make_response(zip_bytes)
+        response.headers['Content-Type'] = 'application/zip'
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="{license_obj.license_number}.zip"'
+        )
+        return response
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@license.route('/team/<int:team_id>/export', methods=['GET'])
+@jwt_required()
+def export_team_licenses(team_id):
+    try:
+        user = get_authorized_user()
+        if user.role not in ['super_admin', 'admin_competition']:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        team = Team.query.get(team_id)
+        if not team:
+            return jsonify({'error': 'Team not found'}), 404
+
+        from olibo.license.export_service import LicenseExportService
+        zip_bytes = LicenseExportService().export_team_zip(team_id)
+
+        safe_name = team.name.replace(' ', '_').replace('/', '-')
+        response = make_response(zip_bytes)
+        response.headers['Content-Type'] = 'application/zip'
+        response.headers['Content-Disposition'] = (
+            f'attachment; filename="licences_{safe_name}.zip"'
+        )
+        return response
+
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 

@@ -1,5 +1,6 @@
 from datetime import datetime
 from olibo import db
+from olibo.common.enums import VOTE_TYPE_LABELS_FR
 
 
 class Vote(db.Model):
@@ -14,7 +15,7 @@ class Vote(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
     # Relations
-    member = db.relationship('TeamMember', foreign_keys=[member_id])
+    member = db.relationship('TeamMember', foreign_keys=[member_id], back_populates='votes')
     competition = db.relationship('Competition')
 
     __table_args__ = (
@@ -31,6 +32,7 @@ class Vote(db.Model):
             "member_id": self.member_id,
             "competition_id": self.competition_id,
             "vote_type": self.vote_type,
+            "vote_type_label": VOTE_TYPE_LABELS_FR.get(self.vote_type, self.vote_type),
             "matchday": self.matchday,
             "created_at": self.created_at.isoformat(),
         }
@@ -49,7 +51,7 @@ class VoteResult(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relations
-    member = db.relationship('TeamMember', foreign_keys=[member_id])
+    member = db.relationship('TeamMember', foreign_keys=[member_id], back_populates='vote_results')
     competition = db.relationship('Competition')
 
     def to_dict(self):
@@ -58,6 +60,7 @@ class VoteResult(db.Model):
             "member_id": self.member_id,
             "competition_id": self.competition_id,
             "vote_type": self.vote_type,
+            "vote_type_label": VOTE_TYPE_LABELS_FR.get(self.vote_type, self.vote_type),
             "matchday": self.matchday,
             "vote_count": self.vote_count,
             "created_at": self.created_at.isoformat(),

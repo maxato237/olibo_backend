@@ -1,6 +1,6 @@
 from datetime import datetime
 from olibo import db
-from olibo.common.enums import MatchStatus
+from olibo.common.enums import MatchStatus, MATCH_STATUS_LABELS_FR, CARD_TYPE_LABELS_FR, MATCH_EVENT_TYPE_LABELS_FR
 
 
 class Match(db.Model):
@@ -8,6 +8,7 @@ class Match(db.Model):
 
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     competition_id = db.Column(db.Integer, db.ForeignKey('competitions.id'), nullable=False)
+    season_id = db.Column(db.Integer, db.ForeignKey('seasons.id'), nullable=True)
     home_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
     away_team_id = db.Column(db.Integer, db.ForeignKey('teams.id'), nullable=False)
     scheduled_date = db.Column(db.DateTime, nullable=False)
@@ -21,6 +22,7 @@ class Match(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     # Relations
+    season = db.relationship('Season', foreign_keys=[season_id])
     referee = db.relationship('User', foreign_keys=[referee_id])
     match_sheet = db.relationship('MatchSheet', backref='match', uselist=False, cascade='all, delete-orphan')
     match_events = db.relationship('MatchEvent', backref='match', cascade='all, delete-orphan')
@@ -29,10 +31,12 @@ class Match(db.Model):
         return {
             "id": self.id,
             "competition_id": self.competition_id,
+            "season_id": self.season_id,
             "home_team_id": self.home_team_id,
             "away_team_id": self.away_team_id,
             "scheduled_date": self.scheduled_date.isoformat(),
             "status": self.status,
+            "status_label": MATCH_STATUS_LABELS_FR.get(self.status, self.status),
             "home_team_goals": self.home_team_goals,
             "away_team_goals": self.away_team_goals,
             "matchday": self.matchday,
@@ -99,8 +103,10 @@ class MatchEvent(db.Model):
             "match_id": self.match_id,
             "member_id": self.member_id,
             "event_type": self.event_type,
+            "event_type_label": MATCH_EVENT_TYPE_LABELS_FR.get(self.event_type, self.event_type),
             "minute": self.minute,
             "card_type": self.card_type,
+            "card_type_label": CARD_TYPE_LABELS_FR.get(self.card_type, self.card_type) if self.card_type else None,
             "notes": self.notes,
             "created_at": self.created_at.isoformat(),
         }
