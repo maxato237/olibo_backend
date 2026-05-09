@@ -35,7 +35,6 @@ class LicenseExportService:
             "issue_date": lic.issue_date.isoformat(),
             "expiry_date": lic.expiry_date.isoformat(),
             "is_valid": lic.is_valid,
-            "is_active": lic.is_active,
             "member": {
                 "id": member.id,
                 "first_name": member.first_name,

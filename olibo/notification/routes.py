@@ -83,3 +83,26 @@ def delete_notification(notif_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
+# Mark all user notifications as read
+@notification.route('/mark-all-read', methods=['POST'])
+@jwt_required()
+def mark_all_as_read():
+    try:
+        user_id = get_jwt_identity()
+        notifications = Notification.query.filter_by(user_id=user_id, is_read=False).all()
+
+        for notification in notifications:
+            notification.is_read = True
+            notification.read_at = datetime.utcnow()
+
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Notifications marked as read successfully',
+            'total': len(notifications),
+        }), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500

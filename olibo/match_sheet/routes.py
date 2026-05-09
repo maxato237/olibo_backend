@@ -246,7 +246,7 @@ def get_team_matches(team_id):
 
 @match_sheet.route('/teams/<int:team_id>/matches/current-season', methods=['GET'])
 def get_team_matches_current_season(team_id):
-    # try:
+    try:
         if not Team.query.get(team_id):
             return jsonify({'error': 'Team not found'}), 404
 
@@ -354,8 +354,8 @@ def get_team_matches_current_season(team_id):
             'matches': [_match_dict(m) for m in matches],
         }), 200
 
-    # except Exception as e:
-    #     return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 @match_sheet.route('/teams/<int:team_id>/matches/recent', methods=['GET'])
 def get_team_recent_matches(team_id):

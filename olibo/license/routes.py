@@ -17,10 +17,10 @@ license = Blueprint('license', __name__)
 # ==========================================
 
 def revoke_season_licenses(season_id: int) -> int:
-    """Passe toutes les licences d'une saison à is_active = False.
+    """Passe toutes les licences d'une saison à is_valid = False.
     Retourne le nombre de licences révoquées.
     """
-    updated = License.query.filter_by(season_id=season_id, is_active=True).update({'is_active': False})
+    updated = License.query.filter_by(season_id=season_id, is_valid=True).update({'is_valid': False})
     db.session.flush()
     return updated
 
@@ -31,6 +31,13 @@ def _active_season_label() -> tuple:
     label = season.label if season else str(datetime.utcnow().year)
     return season, label
 
+def _check_season_closed(season) -> dict | None:
+    """Retourne une erreur JSON-serialisable si la saison est inactive ou terminée."""
+    if season and not season.is_active:
+        return {'error': f"Season '{season.label}' is inactive. Licenses cannot be created or modified for an inactive season."}
+    if season and season.end_date < datetime.utcnow().date():
+        return {'error': f"Season '{season.label}' is closed. Licenses cannot be created or modified for a closed season."}
+    return None
 
 # ==========================================
 # LICENSE ROUTES
@@ -72,24 +79,45 @@ def create_license():
                 return jsonify({'error': 'Season not found'}), 404
         else:
             season, _ = _active_season_label()
-            season_id = season.id if season else None
+            if not season:
+                return jsonify({'error': 'No active season found. Licenses can only be created for an active season.'}), 409
+            season_id = season.id
 
-        season_label = season.label if season else str(datetime.utcnow().year)
+        # Vérification saison inactive / fermée
+        err = _check_season_closed(season)
+        if err:
+            return jsonify(err), 409
 
-        if License.query.filter_by(member_id=data['member_id'], season_id=season_id).first():
-            return jsonify({'error': 'This member already has a license for this season'}), 409
+        season_label = season.label
 
-        # Génération du numéro de licence si absent
-        if not member.license_number:
-            license_number = f"OL-{season_label}-{member.team_id:03d}-{member.id:03d}"
-            if License.query.filter_by(license_number=license_number).first():
-                return jsonify({'error': 'Generated license number conflict, please retry'}), 409
-            member.license_number = license_number
+        existing = License.query.filter_by(member_id=data['member_id'], season_id=season_id).first()
+        license_number = f"OL-{season_label}-{member.team_id:03d}-{member.id:03d}"
+
+        if existing:
+            if existing.is_valid:
+                return jsonify({'error': 'This member already has an active license for this season'}), 409
+
+            if existing.license_number != license_number:
+                if License.query.filter_by(license_number=license_number).first():
+                    return jsonify({'error': f'License number already exists: {license_number}'}), 409
+                existing.license_number = license_number
+
+            existing.is_valid = True
+            existing.issue_date = issue_date
+            existing.expiry_date = expiry_date
+            if 'document_url' in data:
+                existing.document_url = data.get('document_url')
+            db.session.commit()
+
+            return jsonify({'message': 'License reactivated successfully', 'license': existing.to_dict()}), 200
+
+        if License.query.filter_by(license_number=license_number).first():
+            return jsonify({'error': f'License number already exists: {license_number}'}), 409
 
         license_obj = License(
             member_id=data['member_id'],
             season_id=season_id,
-            license_number=member.license_number,
+            license_number=license_number,
             issue_date=issue_date,
             expiry_date=expiry_date,
             document_url=data.get('document_url'),
@@ -128,7 +156,6 @@ def get_all_licenses():
         team_id = request.args.get('team_id', type=int)
         season_id = request.args.get('season_id', type=int)
         is_valid = request.args.get('is_valid')
-        is_active = request.args.get('is_active')
 
         query = License.query
 
@@ -147,9 +174,6 @@ def get_all_licenses():
 
         if is_valid is not None:
             query = query.filter_by(is_valid=is_valid.lower() == 'true')
-
-        if is_active is not None:
-            query = query.filter_by(is_active=is_active.lower() == 'true')
 
         licenses = query.all()
 
@@ -196,7 +220,6 @@ def get_team_season_licenses(season_id, team_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @license.route('/team/<int:team_id>/generate', methods=['POST'])
 @jwt_required()
 def generate_team_licenses(team_id):
@@ -218,9 +241,16 @@ def generate_team_licenses(team_id):
                 return jsonify({'error': 'Season not found'}), 404
         else:
             season, _ = _active_season_label()
-            season_id = season.id if season else None
+            if not season:
+                return jsonify({'error': 'No active season found. Licenses can only be generated for an active season.'}), 409
+            season_id = season.id
 
-        season_label = season.label if season else str(datetime.utcnow().year)
+        # Vérification saison terminée
+        err = _check_season_closed(season)
+        if err:
+            return jsonify(err), 409
+
+        season_label = season.label
 
         if 'issue_date' in data:
             issue_date = datetime.fromisoformat(data['issue_date'])
@@ -249,17 +279,36 @@ def generate_team_licenses(team_id):
 
         for player in players:
             existing = License.query.filter_by(member_id=player.id, season_id=season_id).first()
+            license_number = f"OL-{season_label}-{player.team_id:03d}-{player.id:03d}"
+
             if existing:
-                skipped.append({'member_id': player.id, 'reason': 'already has a license for this season'})
+                if existing.is_valid:
+                    skipped.append({'member_id': player.id, 'reason': 'license already active for this season'})
+                    continue
+
+                if existing.license_number != license_number:
+                    if License.query.filter_by(license_number=license_number).first():
+                        skipped.append({'member_id': player.id, 'reason': f'license number conflict: {license_number}'})
+                        continue
+                    existing.license_number = license_number
+
+                existing.is_valid = True
+                existing.issue_date = issue_date
+                existing.expiry_date = expiry_date
+                if 'document_url' in data:
+                    existing.document_url = data.get('document_url')
+                db.session.flush()
+                created.append(existing.to_dict())
                 continue
 
-            if not player.license_number:
-                player.license_number = f"OL-{season_label}-{player.team_id:03d}-{player.id:03d}"
+            if License.query.filter_by(license_number=license_number).first():
+                skipped.append({'member_id': player.id, 'reason': f'license number conflict: {license_number}'})
+                continue
 
             lic = License(
                 member_id=player.id,
                 season_id=season_id,
-                license_number=player.license_number,
+                license_number=license_number,
                 issue_date=issue_date,
                 expiry_date=expiry_date,
             )
@@ -277,7 +326,6 @@ def generate_team_licenses(team_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
 
 @license.route('/<int:license_id>', methods=['GET'])
 @jwt_required()
@@ -353,6 +401,12 @@ def renew_license(license_id):
         if not license_obj:
             return jsonify({'error': 'License not found'}), 404
 
+        # Vérification saison terminée
+        season = Season.query.get(license_obj.season_id) if license_obj.season_id else None
+        err = _check_season_closed(season)
+        if err:
+            return jsonify(err), 409
+
         data = request.get_json()
 
         if 'expiry_date' in data:
@@ -371,7 +425,6 @@ def renew_license(license_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
-
 
 @license.route('/<int:license_id>/export', methods=['GET'])
 @jwt_required()

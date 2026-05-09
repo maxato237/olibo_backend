@@ -16,7 +16,6 @@ class License(db.Model):
     issue_date = db.Column(db.DateTime, nullable=False)
     expiry_date = db.Column(db.DateTime, nullable=False)
     is_valid = db.Column(db.Boolean, default=True, nullable=False)
-    is_active = db.Column(db.Boolean, default=True, nullable=False)
     document_url = db.Column(db.String(500))
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
 
@@ -33,7 +32,6 @@ class License(db.Model):
             "issue_date": self.issue_date.isoformat(),
             "expiry_date": self.expiry_date.isoformat(),
             "is_valid": self.is_valid,
-            "is_active": self.is_active,
             "document_url": self.document_url,
             "created_at": self.created_at.isoformat(),
         }

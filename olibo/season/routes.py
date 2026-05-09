@@ -140,7 +140,7 @@ def update_season(season_id):
 
 @seasons.route('/<int:season_id>/teams/stats', methods=['GET'])
 def get_season_team_stats(season_id):
-    try:
+    # try:
         season = Season.query.get(season_id)
         if not season:
             return jsonify({'error': 'Season not found'}), 404
@@ -216,7 +216,7 @@ def get_season_team_stats(season_id):
         licensed_rows = (
             db.session.query(TeamMember.team_id, func.count(License.id).label('n'))
             .join(License, License.member_id == TeamMember.id)
-            .filter(License.season_id == season_id, License.is_active == True)
+            .filter(License.season_id == season_id, License.is_valid == True)
             .group_by(TeamMember.team_id)
             .all()
         )
@@ -284,8 +284,8 @@ def get_season_team_stats(season_id):
             'teams':  results,
         }), 200
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
 
 
 @seasons.route('/<int:season_id>', methods=['DELETE'])

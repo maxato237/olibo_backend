@@ -242,7 +242,6 @@ def create_licenses(players, seasons=None):
             issue_date=datetime.utcnow() - timedelta(days=365),
             expiry_date=datetime.utcnow() + timedelta(days=180),
             is_valid=True,
-            is_active=True,
             document_url=license_doc_url(member.id),
         )
         db.session.add(lic)

@@ -628,37 +628,51 @@ def _generate_team_licenses(team_id: int):
     from olibo.license.model import License
     from olibo.season.model import Season
     active_season = Season.query.filter_by(is_active=True).first()
-    season_label = active_season.label if active_season else str(datetime.utcnow().year)
-    season_id = active_season.id if active_season else None
+    if not active_season:
+        current_app.logger.warning('No active season found: skipping license generation')
+        return
 
-    if active_season:
-        issue_date = datetime(
-            active_season.start_date.year,
-            active_season.start_date.month,
-            active_season.start_date.day,
-        )
-        expiry_date = datetime(
-            active_season.end_date.year,
-            active_season.end_date.month,
-            active_season.end_date.day,
-        )
-    else:
-        now = datetime.utcnow()
-        issue_date = now
-        expiry_date = datetime(now.year, 12, 31)
+    season_label = active_season.label
+    season_id = active_season.id
 
-    players = TeamMember.query.filter_by(team_id=team_id, role='player').all()
+    issue_date = datetime(
+        active_season.start_date.year,
+        active_season.start_date.month,
+        active_season.start_date.day,
+    )
+    expiry_date = datetime(
+        active_season.end_date.year,
+        active_season.end_date.month,
+        active_season.end_date.day,
+    )
+
+    players = TeamMember.query.filter_by(team_id=team_id, role='player', is_active=True).all()
     for player in players:
-        if not player.license_number:
-            player.license_number = f"OL-{season_label}-{team_id:03d}-{player.id:03d}"
-        if not License.query.filter_by(member_id=player.id, season_id=season_id).first():
-            db.session.add(License(
-                member_id=player.id,
-                season_id=season_id,
-                license_number=player.license_number,
-                issue_date=issue_date,
-                expiry_date=expiry_date,
-            ))
+        license_number = f"OL-{season_label}-{team_id:03d}-{player.id:03d}"
+        existing = License.query.filter_by(member_id=player.id, season_id=season_id).first()
+
+        if existing:
+            if existing.is_valid:
+                continue
+            if existing.license_number != license_number:
+                if License.query.filter_by(license_number=license_number).first():
+                    continue
+                existing.license_number = license_number
+            existing.is_valid = True
+            existing.issue_date = issue_date
+            existing.expiry_date = expiry_date
+            continue
+
+        if License.query.filter_by(license_number=license_number).first():
+            continue
+
+        db.session.add(License(
+            member_id=player.id,
+            season_id=season_id,
+            license_number=license_number,
+            issue_date=issue_date,
+            expiry_date=expiry_date,
+        ))
 
 
 @team.route('/<int:team_id>/registration', methods=['GET'])
@@ -775,7 +789,7 @@ def update_registration_status(reg_id):
 @team.route('/registrations/<int:reg_id>/validate', methods=['POST'])
 @jwt_required()
 def validate_registration(reg_id):
-    try:
+    # try:
         user = get_authorized_user()
         if user.role not in ['super_admin', 'admin_competition', 'operator']:
             return jsonify({'error': 'Unauthorized'}), 403
@@ -801,9 +815,9 @@ def validate_registration(reg_id):
             'registration': registration.to_dict(),
         }), 200
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     db.session.rollback()
+    #     return jsonify({'error': str(e)}), 500
 
 
 @team.route('/registrations/<int:reg_id>/reject', methods=['POST'])

@@ -136,8 +136,13 @@ class TeamRegistration(db.Model):
             "team_id": self.team_id,
             "status": self.status,
             "status_label": REGISTRATION_STATUS_LABELS_FR.get(self.status, self.status),
+            "team_name": self.team.name if self.team else None,
+            "team_logo": self.team.logo if self.team else None,
+            "created_at": self.submission_date.isoformat(),
             "submission_date": self.submission_date.isoformat(),
+            "validated_at": self.validation_date.isoformat() if self.validation_date else None,
             "validation_date": self.validation_date.isoformat() if self.validation_date else None,
             "rejection_reason": self.rejection_reason,
             "validated_by_id": self.validated_by_id,
+            "validated_by": f"{self.validated_by.first_name} {self.validated_by.last_name}" if self.validated_by else None,
         }
