@@ -49,6 +49,9 @@ def create_app(config_class=None):
     # En local, on compose l'URI depuis POSTGRESQL_CONNEXION.
     _database_url = os.environ.get('DATABASE_URL', '')
     if _database_url:
+        # SQLAlchemy 2.x n'accepte plus 'postgres://' — correction silencieuse
+        if _database_url.startswith('postgres://'):
+            _database_url = _database_url.replace('postgres://', 'postgresql://', 1)
         app.config['SQLALCHEMY_DATABASE_URI'] = _database_url
     else:
         _pg = config.Config.POSTGRESQL_CONNEXION
