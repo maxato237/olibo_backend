@@ -373,6 +373,13 @@ def delete_team(team_id):
         if not t:
             return jsonify({'error': 'Team not found'}), 404
 
+        if t.logo_public_id:
+            delete_from_cloudinary(t.logo_public_id)
+
+        for member in (t.members or []):
+            if member.photo_public_id:
+                delete_from_cloudinary(member.photo_public_id)
+
         db.session.delete(t)
         db.session.commit()
         return '', 204
@@ -576,6 +583,8 @@ def update_member(team_id, member_id):
 
         photo_file = request.files.get('photo')
         if photo_file:
+            if member.photo_public_id:
+                delete_from_cloudinary(member.photo_public_id)
             path = save_upload(photo_file, 'members')
             if path:
                 member.photo = path['url']
@@ -702,11 +711,16 @@ def get_team_registration(team_id):
 def get_all_registrations():
     try:
         user = get_authorized_user()
-        if user.role not in ['super_admin', 'admin_competition', 'operator']:
-            return jsonify({'error': 'Unauthorized'}), 403
+        admin_roles = {'super_admin', 'admin_competition'}
 
         status = request.args.get('status')
         query = TeamRegistration.query
+
+        if user.role not in admin_roles:
+            user_teams = Team.query.filter_by(representative_id=user.id).all()
+            team_ids = [t.id for t in user_teams]
+            query = query.filter(TeamRegistration.team_id.in_(team_ids))
+
         if status:
             query = query.filter_by(status=status)
 
@@ -725,9 +739,17 @@ def get_all_registrations():
 @jwt_required()
 def get_registration(reg_id):
     try:
+        user = get_authorized_user()
         registration = TeamRegistration.query.get(reg_id)
         if not registration:
             return jsonify({'error': 'Registration not found'}), 404
+
+        admin_roles = {'super_admin', 'admin_competition'}
+        if user.role not in admin_roles:
+            team = Team.query.filter_by(id=registration.team_id, representative_id=user.id).first()
+            if not team:
+                return jsonify({'error': 'Unauthorized'}), 403
+
         return jsonify({
             'message': 'Registration retrieved successfully',
             'registration': registration.to_dict(),
@@ -741,7 +763,7 @@ def get_registration(reg_id):
 def update_registration_status(reg_id):
     try:
         user = get_authorized_user()
-        if user.role not in ['super_admin', 'admin_competition', 'operator']:
+        if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         registration = TeamRegistration.query.get(reg_id)
@@ -786,12 +808,46 @@ def update_registration_status(reg_id):
         return jsonify({'error': str(e)}), 500
 
 
+@team.route('/registrations/<int:reg_id>/resubmit', methods=['POST'])
+@jwt_required()
+def resubmit_registration(reg_id):
+    try:
+        user = get_authorized_user()
+        registration = TeamRegistration.query.get(reg_id)
+        if not registration:
+            return jsonify({'error': 'Registration not found'}), 404
+
+        admin_roles = {'super_admin', 'admin_competition'}
+        if user.role not in admin_roles:
+            team = Team.query.filter_by(id=registration.team_id, representative_id=user.id).first()
+            if not team:
+                return jsonify({'error': 'Unauthorized'}), 403
+
+        if registration.status != RegistrationStatus.REJECTED.value:
+            return jsonify({'error': 'Seules les inscriptions rejetées peuvent être relancées'}), 400
+
+        registration.status = RegistrationStatus.PENDING.value
+        registration.validated_by_id = None
+        registration.validation_date = None
+        registration.rejection_reason = None
+
+        db.session.commit()
+        return jsonify({
+            'message': 'Inscription relancée avec succès',
+            'registration': registration.to_dict(),
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @team.route('/registrations/<int:reg_id>/validate', methods=['POST'])
 @jwt_required()
 def validate_registration(reg_id):
     # try:
         user = get_authorized_user()
-        if user.role not in ['super_admin', 'admin_competition', 'operator']:
+        if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         registration = TeamRegistration.query.get(reg_id)
@@ -825,7 +881,7 @@ def validate_registration(reg_id):
 def reject_registration(reg_id):
     try:
         user = get_authorized_user()
-        if user.role not in ['super_admin', 'admin_competition', 'operator']:
+        if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
 
         registration = TeamRegistration.query.get(reg_id)

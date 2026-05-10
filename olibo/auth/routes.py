@@ -1,5 +1,5 @@
 from olibo.auth.model import Token
-from datetime import timedelta
+from datetime import datetime, timedelta
 import re
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import (
@@ -99,6 +99,15 @@ def login():
 
         access_token, refresh_token = _make_tokens(user)
 
+        # Invalide les sessions précédentes et enregistre le nouveau refresh token
+        Token.query.filter_by(user_id=user.id).delete()
+        db.session.add(Token(
+            user_id=user.id,
+            token=refresh_token,
+            expires_at=datetime.utcnow() + timedelta(days=30)
+        ))
+        db.session.commit()
+
         return jsonify({
             'message': 'Login successful',
             'access_token': access_token,
@@ -107,6 +116,7 @@ def login():
         }), 200
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
@@ -131,22 +141,35 @@ def logout():
         return jsonify({'error': str(e)}), 500
 
 
-# Refresh — utilise le refresh token dédié
+# Refresh — valide contre la DB et effectue une rotation du token
 @auth.route('/refresh', methods=['POST'])
 @jwt_required(refresh=True)
 def refresh_token():
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
 
+        # Extraire le refresh token brut depuis le header Authorization
+        incoming = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
+
+        token_record = Token.query.filter_by(user_id=user_id, token=incoming).first()
+        if not token_record or token_record.expires_at < datetime.utcnow():
+            return jsonify({'error': 'Refresh token invalide ou expiré'}), 401
+
+        user = User.query.get(user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
-        access_token, _ = _make_tokens(user)
+        access_token, new_refresh = _make_tokens(user)
 
-        return jsonify({'access_token': access_token}), 200
+        # Rotation : remplacer l'ancien refresh token
+        token_record.token = new_refresh
+        token_record.expires_at = datetime.utcnow() + timedelta(days=30)
+        db.session.commit()
+
+        return jsonify({'access_token': access_token, 'refresh_token': new_refresh}), 200
 
     except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 

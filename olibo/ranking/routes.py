@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import get_jwt_identity, jwt_required
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, subqueryload
 from olibo.common.helpers import get_authorized_user
 from olibo.competition.model import Competition
 from olibo.ranking.model import Ranking
@@ -22,7 +22,10 @@ def get_competition_rankings(comp_id):
         rankings = (
             Ranking.query
             .filter_by(competition_id=comp_id)
-            .options(joinedload(Ranking.team))
+            .options(
+                joinedload(Ranking.team)
+                .subqueryload('members')
+            )
             .order_by(Ranking.position.nulls_last())
             .all()
         )
@@ -37,6 +40,8 @@ def get_competition_rankings(comp_id):
                 'representative_id': r.team.representative_id,
                 'created_at': r.team.created_at.isoformat(),
                 'updated_at': r.team.updated_at.isoformat(),
+                'member_count': len(r.team.members),
+                'player_count': sum(1 for m in r.team.members if m.role == 'player'),
             }
             return data
 

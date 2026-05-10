@@ -44,6 +44,68 @@ def _check_season_closed(season) -> dict | None:
 # ==========================================
 
 
+@license.route('/verify', methods=['GET'])
+def verify_license_public():
+    """Endpoint public — pas d'authentification. Utilisé par les QR codes des licences."""
+    try:
+        license_number = request.args.get('n', '').strip()
+        if not license_number:
+            return jsonify({'error': 'License number required'}), 400
+        lic = License.query.filter_by(license_number=license_number).first()
+        if not lic:
+            return jsonify({'error': 'License not found'}), 404
+
+        member = lic.member
+        team   = member.team if member else None
+        season = lic.season
+        now    = datetime.utcnow()
+
+        if not lic.is_valid:
+            status = 'revoked'
+        elif lic.expiry_date < now:
+            status = 'expired'
+        else:
+            status = 'authentic'
+
+        return jsonify({
+            'verification_status': status,
+            'license': {
+                'id':                lic.id,
+                'license_number':    lic.license_number,
+                'issue_date':        lic.issue_date.isoformat(),
+                'expiry_date':       lic.expiry_date.isoformat(),
+                'is_valid':          lic.is_valid,
+                'season_label':      season.label if season else None,
+                'season_label_short': getattr(season, 'label_short', None),
+            },
+            'member': {
+                'id':              member.id,
+                'first_name':      member.first_name,
+                'last_name':       member.last_name,
+                'photo':           member.photo,
+                'position':        member.position,
+                'jersey_number':   member.jersey_number,
+                'nationality':     member.nationality,
+                'nationality_label': member.nationality_label,
+                'category':        member.category,
+                'gender':          member.gender,
+                'height_cm':       member.height_cm,
+                'weight_kg':       member.weight_kg,
+                'birth_date':      member.birth_date.isoformat() if member.birth_date else None,
+                'is_captain':      member.is_captain,
+                'preferred_foot':  member.preferred_foot,
+            } if member else None,
+            'team': {
+                'id':   team.id,
+                'name': team.name,
+                'logo': team.logo,
+            } if team else None,
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @license.route('', methods=['POST'])
 @jwt_required()
 def create_license():
