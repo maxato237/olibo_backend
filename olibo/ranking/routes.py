@@ -6,6 +6,9 @@ from olibo.competition.model import Competition
 from olibo.ranking.model import Ranking
 from olibo.ranking.utilities import recalculate_rankings
 from olibo.users.model import User
+from olibo.team.model import Team
+
+COMPETITION_NOT_FOUND_ERROR = 'Competition not found'
 
 ranking = Blueprint('ranking', __name__)
 
@@ -13,18 +16,18 @@ ranking = Blueprint('ranking', __name__)
 # Get rankings by competition
 @ranking.route('/competition/<int:comp_id>', methods=['GET'])
 def get_competition_rankings(comp_id):
-    try:
+    # try:
         competition = Competition.query.get(comp_id)
 
         if not competition:
-            return jsonify({'error': 'Competition not found'}), 404
+            return jsonify({'error': COMPETITION_NOT_FOUND_ERROR}), 404
 
         rankings = (
             Ranking.query
             .filter_by(competition_id=comp_id)
             .options(
                 joinedload(Ranking.team)
-                .subqueryload('members')
+                .subqueryload(Team.members)
             )
             .order_by(Ranking.position.nulls_last())
             .all()
@@ -51,8 +54,8 @@ def get_competition_rankings(comp_id):
             'rankings': [ranking_with_team(r) for r in rankings]
         }), 200
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
 
 
 # Get ranking for a specific team in a competition
@@ -61,7 +64,7 @@ def get_team_ranking(comp_id, team_id):
     try:
         competition = Competition.query.get(comp_id)
         if not competition:
-            return jsonify({'error': 'Competition not found'}), 404
+            return jsonify({'error': COMPETITION_NOT_FOUND_ERROR}), 404
 
         ranking = Ranking.query.filter_by(competition_id=comp_id, team_id=team_id).first()
         if not ranking:
@@ -90,7 +93,7 @@ def update_rankings():
 
         competition = Competition.query.get(data['competition_id'])
         if not competition:
-            return jsonify({'error': 'Competition not found'}), 404
+            return jsonify({'error': COMPETITION_NOT_FOUND_ERROR}), 404
 
         recalculate_rankings(data['competition_id'])
 

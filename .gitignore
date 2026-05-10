@@ -9,6 +9,7 @@ venv/
 .claude/
 __pycache__/
 *.pyc
+seed_database.py
 
 # Credentials
 credentials/

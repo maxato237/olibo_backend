@@ -286,28 +286,47 @@ def create_seasons():
 
 
 def create_competitions(seasons=None):
-    """Crée les compétitions."""
+    """Crée les compétitions liées à la saison active."""
     print("Creating competitions...")
     from olibo.competition.model import Competition
-
-    competitions = []
     from olibo.common.enums import CompetitionType
 
-    comp_names = ['Saison 2024', 'Saison 2025']
-    comp_types = [CompetitionType.LEAGUE, CompetitionType.LEAGUE]
+    active_season = next((s for s in seasons if s.is_active), seasons[-1]) if seasons else None
 
-    for i, name in enumerate(comp_names):
-        start_date = datetime.utcnow() - timedelta(days=random.randint(60, 180))
-        season_ref = seasons[i % len(seasons)] if seasons else None
+    comps_data = [
+        {
+            'name': 'Championnat Élite',
+            'competition_type': CompetitionType.LEAGUE,
+            'is_active': True,
+            'ranking_rules': {
+                'preset': 'ligue_1',
+                'tiebreaker_order': ['points', 'head_to_head', 'goal_difference', 'goals_for', 'fair_play'],
+            },
+        },
+        {
+            'name': 'Coupe Nationale',
+            'competition_type': CompetitionType.LEAGUE,
+            'is_active': True,
+            'ranking_rules': {
+                'preset': 'classique',
+                'tiebreaker_order': ['points', 'goal_difference', 'goals_for', 'clean_sheets'],
+            },
+        },
+    ]
+
+    competitions = []
+    for data in comps_data:
+        start_date = datetime.utcnow() - timedelta(days=random.randint(60, 120))
         competition = Competition(
-            name=name,
+            name=data['name'],
             description=fake.sentence(),
             start_date=start_date,
-            end_date=start_date + timedelta(days=120),
-            season=2024 + i,
-            season_id=season_ref.id if season_ref else None,
-            is_active=(i == 0),
-            competition_type=comp_types[i]
+            end_date=start_date + timedelta(days=150),
+            season=active_season.label if active_season else '2025/26',
+            season_id=active_season.id if active_season else None,
+            is_active=data['is_active'],
+            competition_type=data['competition_type'],
+            ranking_rules=data['ranking_rules'],
         )
         db.session.add(competition)
         competitions.append(competition)
@@ -424,16 +443,20 @@ def create_match_events(matches, players):
 
 
 def create_rankings(competitions, teams):
-    """Crée les classements."""
+    """Crée les classements avec tous les champs du modèle."""
     print("Creating rankings...")
     from olibo.ranking.model import Ranking
 
     rankings = []
     for comp in competitions:
-        for pos, team_obj in enumerate(teams, 1):
-            wins   = random.randint(0, 20)
-            draws  = random.randint(0, 10)
-            losses = random.randint(0, 10)
+        shuffled = list(teams)
+        random.shuffle(shuffled)
+        for pos, team_obj in enumerate(shuffled, 1):
+            wins          = random.randint(0, 15)
+            draws         = random.randint(0, 6)
+            losses        = random.randint(0, 10)
+            goals_for     = random.randint(5, 60)
+            goals_against = random.randint(5, 50)
             ranking = Ranking(
                 competition_id=comp.id,
                 team_id=team_obj.id,
@@ -442,10 +465,13 @@ def create_rankings(competitions, teams):
                 wins=wins,
                 draws=draws,
                 losses=losses,
-                goals_for=random.randint(10, 80),
-                goals_against=random.randint(10, 80),
-                goal_difference=random.randint(-20, 20),
+                goals_for=goals_for,
+                goals_against=goals_against,
+                goal_difference=goals_for - goals_against,
                 points=wins * 3 + draws,
+                yellow_cards=random.randint(0, 30),
+                red_cards=random.randint(0, 5),
+                clean_sheets=random.randint(0, wins),
             )
             db.session.add(ranking)
             rankings.append(ranking)

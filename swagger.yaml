@@ -637,20 +637,20 @@ definitions:
         example: 1
       team_id:
         type: integer
-        example: 1
+        example: 3
       position:
         type: integer
         example: 1
-      played:
+      matches_played:
         type: integer
         example: 10
-      won:
+      wins:
         type: integer
         example: 7
-      drawn:
+      draws:
         type: integer
         example: 2
-      lost:
+      losses:
         type: integer
         example: 1
       goals_for:
@@ -665,6 +665,40 @@ definitions:
       points:
         type: integer
         example: 23
+      yellow_cards:
+        type: integer
+        example: 8
+      red_cards:
+        type: integer
+        example: 1
+      clean_sheets:
+        type: integer
+        example: 4
+      updated_at:
+        type: string
+        format: date-time
+        example: "2025-10-15T18:30:00"
+      team:
+        type: object
+        description: Données de l'équipe (incluses dans GET /ranking/competition/{comp_id})
+        properties:
+          id:
+            type: integer
+            example: 3
+          name:
+            type: string
+            example: "FC Yaoundé United"
+          logo:
+            type: string
+            example: "https://res.cloudinary.com/olibo/image/upload/teams/logo.png"
+          member_count:
+            type: integer
+            description: Nombre total de membres (joueurs + staff)
+            example: 15
+          player_count:
+            type: integer
+            description: Nombre de joueurs licenciés
+            example: 11
 
   # --- Voting ---
   Vote:
@@ -1054,23 +1088,30 @@ paths:
   /api/auth/refresh:
     post:
       tags: [Auth]
-      summary: Rafraîchir le token d'accès
+      summary: Rafraîchir le token d'accès (avec rotation)
       description: |
         Utilise le **refresh token** (dans le header Authorization) pour générer
-        un nouveau access token sans se reconnecter.
+        un nouveau access token **et** un nouveau refresh token sans se reconnecter.
+
+        Le refresh token est validé contre la base de données et **pivoté** à chaque
+        appel (l'ancien est invalidé). Cela empêche la réutilisation d'un refresh token
+        volé après qu'il ait été utilisé une première fois.
       security:
         - Bearer: []
       responses:
         200:
-          description: Nouveau access token généré
+          description: Nouveaux tokens générés
           schema:
             type: object
             properties:
               access_token:
                 type: string
                 example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+              refresh_token:
+                type: string
+                example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
         401:
-          description: Refresh token invalide ou expiré
+          description: Refresh token invalide, expiré ou absent de la base
 
   /api/auth/me:
     get:
@@ -2802,7 +2843,10 @@ paths:
     get:
       tags: [Ranking]
       summary: Classement d'une compétition
-      description: Retourne toutes les équipes classées par points, différence de buts, puis buts marqués.
+      description: |
+        Retourne toutes les entrées de classement pour la compétition, triées par `position`.
+        Chaque entrée inclut un objet `team` avec le nom, logo, `member_count` et `player_count`.
+        L'ordre des tiebreakers est défini par `ranking_rules` de la compétition.
       parameters:
         - in: path
           name: comp_id
@@ -2813,9 +2857,18 @@ paths:
         200:
           description: Tableau de classement ordonné
           schema:
-            type: array
-            items:
-              $ref: '#/definitions/Ranking'
+            type: object
+            properties:
+              message:
+                type: string
+                example: Rankings retrieved successfully
+              total:
+                type: integer
+                example: 9
+              rankings:
+                type: array
+                items:
+                  $ref: '#/definitions/Ranking'
         404:
           description: Compétition non trouvée
 
@@ -2845,9 +2898,15 @@ paths:
       tags: [Ranking]
       summary: Recalculer les classements manuellement
       description: |
-        Force le recalcul complet du classement d'une compétition sur la base
-        de tous les matchs complétés. Normalement déclenché automatiquement
-        à la clôture d'un match.
+        Force le recalcul complet du classement d'une compétition à partir de
+        tous les matchs au statut `COMPLETED`.
+
+        Le calcul respecte les `ranking_rules` de la compétition (`preset` ou
+        `tiebreaker_order` personnalisé). Les champs calculés sont : points,
+        victoires/nuls/défaites, buts, différence de buts, clean sheets,
+        cartons jaunes et rouges.
+
+        **Rôles autorisés :** `super_admin`, `admin_competition`, `operator`
       security:
         - Bearer: []
       parameters:
@@ -2863,13 +2922,23 @@ paths:
                 example: 1
       responses:
         200:
-          description: Classements recalculés
+          description: Classements recalculés avec succès
           schema:
-            type: array
-            items:
-              $ref: '#/definitions/Ranking'
+            type: object
+            properties:
+              message:
+                type: string
+                example: Rankings recalculated successfully
+              rankings:
+                type: array
+                items:
+                  $ref: '#/definitions/Ranking'
+        400:
+          description: competition_id manquant
         403:
           description: Permissions insuffisantes
+        404:
+          description: Compétition non trouvée
 
   # ==================== VOTING ====================
 
