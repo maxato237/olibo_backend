@@ -54,20 +54,20 @@ def create_app(config_class=None):
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     # Configuration JWT
-    app.config['SECRET_KEY'] = config.Config.SECRET_KEY
-    app.config['JWT_SECRET_KEY'] = config.Config.SECRET_JWT_KEY
-    app.config['JWT_TOKEN_LOCATION'] = config.Config.JWT_TOKEN_LOCATION
-    app.config['JWT_HEADER_NAME'] = config.Config.JWT_HEADER_NAME
-    app.config['JWT_HEADER_TYPE'] = config.Config.JWT_HEADER_TYPE
-    app.config['JWT_COOKIE_SECURE'] = False
-    app.config['JWT_SESSION_COOKIE'] = False
-    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
-    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
-
     if config_class:
         app.config.from_object(config_class)
     else:
         app.config.from_object(config.Config)
+
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', app.config.get('SECRET_KEY'))  # NOSONAR
+    app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', app.config.get('JWT_SECRET_KEY'))  # NOSONAR
+    app.config['JWT_TOKEN_LOCATION'] = app.config.get('JWT_TOKEN_LOCATION', config.Config.JWT_TOKEN_LOCATION)
+    app.config['JWT_HEADER_NAME'] = app.config.get('JWT_HEADER_NAME', config.Config.JWT_HEADER_NAME)
+    app.config['JWT_HEADER_TYPE'] = app.config.get('JWT_HEADER_TYPE', config.Config.JWT_HEADER_TYPE)
+    app.config['JWT_COOKIE_SECURE'] = False
+    app.config['JWT_SESSION_COOKIE'] = False
+    app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
+    app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
 
     db.init_app(app)
     migrate.init_app(app, db)
