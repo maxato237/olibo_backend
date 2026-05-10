@@ -1,4 +1,3 @@
-
 import cloudinary
 import cloudinary.uploader
 import os
@@ -25,36 +24,24 @@ limiter = Limiter(
     default_limits=[]
 )
 
+def _normalize_db_url(url: str) -> str:
+    """Force le schéma postgresql+psycopg2:// pour éviter toute ambiguïté de dialecte."""
+    for prefix in ('postgres://', 'postgresql://'):
+        if url.startswith(prefix):
+            return 'postgresql+psycopg2://' + url[len(prefix):]
+    return url
+
 def create_app(config_class=None):
 
     app = Flask(__name__)  # NOSONAR — REST API JWT stateless, pas de sessions cookie → CSRF sans objet
 
-    _cors_env = os.environ.get('CORS_ORIGINS', 'http://localhost:4200')
-    _cors_origins = [o.strip() for o in _cors_env.split(',')]
-    CORS(app,
-         resources={r"/api/*": {"origins": _cors_origins}},
-         supports_credentials=True,
-         expose_headers=["Content-Type", "Authorization"],
-         allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
-    )
+    # 1. Charger la config de base EN PREMIER
+    if config_class:
+        app.config.from_object(config_class)
+    else:
+        app.config.from_object(config.Config)
 
-    cloudinary.config(
-        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
-        api_key=os.environ.get('CLOUDINARY_API_KEY'),
-        api_secret=os.environ.get('CLOUDINARY_API_SECRET')
-    )
-
-    # Configuration de la base de données
-    # Priorité 1 : DATABASE_URL (variable unique fournie par Sevalla / Heroku / Railway…)
-    # Priorité 2 : variables PG* individuelles (PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT)
-    # Priorité 3 : config locale (LOCAL_DB_*)
-    def _normalize_db_url(url: str) -> str:
-        """Force le schéma postgresql+psycopg2:// pour éviter toute ambiguïté de dialecte."""
-        for prefix in ('postgres://', 'postgresql://'):
-            if url.startswith(prefix):
-                return 'postgresql+psycopg2://' + url[len(prefix):]
-        return url
-
+    # 2. Configurer la DB APRÈS (pour ne pas être écrasé par from_object)
     _database_url = os.environ.get('DATABASE_URL', '').strip()
     if _database_url:
         app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(_database_url)
@@ -77,12 +64,7 @@ def create_app(config_class=None):
 
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-    # Configuration JWT
-    if config_class:
-        app.config.from_object(config_class)
-    else:
-        app.config.from_object(config.Config)
-
+    # 3. Surcharger les clés sensibles depuis l'environnement
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', app.config.get('SECRET_KEY'))  # NOSONAR
     app.config['JWT_SECRET_KEY'] = os.environ.get('JWT_SECRET_KEY', app.config.get('JWT_SECRET_KEY'))  # NOSONAR
     app.config['JWT_TOKEN_LOCATION'] = app.config.get('JWT_TOKEN_LOCATION', config.Config.JWT_TOKEN_LOCATION)
@@ -92,6 +74,23 @@ def create_app(config_class=None):
     app.config['JWT_SESSION_COOKIE'] = False
     app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=2)
     app.config['JWT_REFRESH_TOKEN_EXPIRES'] = timedelta(days=30)
+
+    # 4. CORS
+    _cors_env = os.environ.get('CORS_ORIGINS', 'http://localhost:4200')
+    _cors_origins = [o.strip() for o in _cors_env.split(',')]
+    CORS(app,
+         resources={r"/api/*": {"origins": _cors_origins}},
+         supports_credentials=True,
+         expose_headers=["Content-Type", "Authorization"],
+         allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
+    )
+
+    # 5. Cloudinary
+    cloudinary.config(
+        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.environ.get('CLOUDINARY_API_KEY'),
+        api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+    )
 
     db.init_app(app)
     migrate.init_app(app, db)
