@@ -45,18 +45,33 @@ def create_app(config_class=None):
     )
 
     # Configuration de la base de données
-    # En production (Sevalla), DATABASE_URL est fourni directement.
-    # En local, on compose l'URI depuis POSTGRESQL_CONNEXION.
-    _database_url = os.environ.get('DATABASE_URL', '')
+    # Priorité 1 : DATABASE_URL (variable unique fournie par Sevalla / Heroku / Railway…)
+    # Priorité 2 : variables PG* individuelles (PGHOST, PGUSER, PGPASSWORD, PGDATABASE, PGPORT)
+    # Priorité 3 : config locale (LOCAL_DB_*)
+    def _normalize_db_url(url: str) -> str:
+        """Force le schéma postgresql+psycopg2:// pour éviter toute ambiguïté de dialecte."""
+        for prefix in ('postgres://', 'postgresql://'):
+            if url.startswith(prefix):
+                return 'postgresql+psycopg2://' + url[len(prefix):]
+        return url
+
+    _database_url = os.environ.get('DATABASE_URL', '').strip()
     if _database_url:
-        # SQLAlchemy 2.x n'accepte plus 'postgres://' — correction silencieuse
-        if _database_url.startswith('postgres://'):
-            _database_url = _database_url.replace('postgres://', 'postgresql://', 1)
-        app.config['SQLALCHEMY_DATABASE_URI'] = _database_url
+        app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_db_url(_database_url)
+    elif os.environ.get('PGHOST'):
+        _pg_user     = os.environ.get('PGUSER',     'postgres')
+        _pg_password = quote_plus(os.environ.get('PGPASSWORD', ''))
+        _pg_host     = os.environ.get('PGHOST',     'localhost')
+        _pg_port     = os.environ.get('PGPORT',     '5432')
+        _pg_db       = os.environ.get('PGDATABASE', 'oliboBd')
+        app.config['SQLALCHEMY_DATABASE_URI'] = (
+            f"postgresql+psycopg2://{_pg_user}:{_pg_password}"
+            f"@{_pg_host}:{_pg_port}/{_pg_db}"
+        )
     else:
         _pg = config.Config.POSTGRESQL_CONNEXION
         app.config['SQLALCHEMY_DATABASE_URI'] = (
-            f"postgresql://{_pg['user']}:{quote_plus(_pg['password'])}"
+            f"postgresql+psycopg2://{_pg['user']}:{quote_plus(_pg['password'])}"
             f"@{_pg['host']}:{_pg['port']}/{_pg['database']}?sslmode=disable"
         )
 
