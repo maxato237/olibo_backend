@@ -26,7 +26,7 @@ limiter = Limiter(
 
 def create_app(config_class=None):
 
-    app = Flask(__name__)
+    app = Flask(__name__)  # NOSONAR — REST API JWT stateless, pas de sessions cookie → CSRF sans objet
 
     CORS(app,
          resources={r"/api/*": {"origins": [
