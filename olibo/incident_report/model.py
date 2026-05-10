@@ -23,10 +23,16 @@ class IncidentReport(db.Model):
     member = db.relationship('TeamMember', foreign_keys=[member_id], back_populates='incident_reports')
 
     def to_dict(self):
+        def _name(user):
+            if not user:
+                return None
+            return f"{user.first_name or ''} {user.last_name or ''}".strip() or f"#{user.id}"
+
         return {
             "id": self.id,
             "match_id": self.match_id,
             "reporter_id": self.reporter_id,
+            "reporter_name": _name(self.reporter),
             "member_id": self.member_id,
             "incident_type": self.incident_type,
             "description": self.description,

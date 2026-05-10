@@ -5,6 +5,7 @@ import os
 import yaml
 
 from datetime import timedelta
+from urllib.parse import quote_plus
 from flask import Flask
 from flask_jwt_extended import JWTManager
 from flask_limiter import Limiter
@@ -28,11 +29,10 @@ def create_app(config_class=None):
 
     app = Flask(__name__)  # NOSONAR — REST API JWT stateless, pas de sessions cookie → CSRF sans objet
 
+    _cors_env = os.environ.get('CORS_ORIGINS', 'http://localhost:4200')
+    _cors_origins = [o.strip() for o in _cors_env.split(',')]
     CORS(app,
-         resources={r"/api/*": {"origins": [
-             "file://",
-             "http://localhost:4200",
-         ]}},
+         resources={r"/api/*": {"origins": _cors_origins}},
          supports_credentials=True,
          expose_headers=["Content-Type", "Authorization"],
          allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
@@ -45,11 +45,17 @@ def create_app(config_class=None):
     )
 
     # Configuration de la base de données
-    app.config['SQLALCHEMY_DATABASE_URI'] = (
-        f"postgresql://{config.Config.POSTGRESQL_CONNEXION['user']}:{config.Config.POSTGRESQL_CONNEXION['password']}"
-        f"@{config.Config.POSTGRESQL_CONNEXION['host']}:{config.Config.POSTGRESQL_CONNEXION['port']}"
-        f"/{config.Config.POSTGRESQL_CONNEXION['database']}?sslmode=disable"
-    )
+    # En production (Sevalla), DATABASE_URL est fourni directement.
+    # En local, on compose l'URI depuis POSTGRESQL_CONNEXION.
+    _database_url = os.environ.get('DATABASE_URL', '')
+    if _database_url:
+        app.config['SQLALCHEMY_DATABASE_URI'] = _database_url
+    else:
+        _pg = config.Config.POSTGRESQL_CONNEXION
+        app.config['SQLALCHEMY_DATABASE_URI'] = (
+            f"postgresql://{_pg['user']}:{quote_plus(_pg['password'])}"
+            f"@{_pg['host']}:{_pg['port']}/{_pg['database']}?sslmode=disable"
+        )
 
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 

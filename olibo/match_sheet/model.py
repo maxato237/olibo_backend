@@ -65,11 +65,18 @@ class MatchSheet(db.Model):
     validated_by = db.relationship('User', foreign_keys=[validated_by_id])
 
     def to_dict(self):
+        def _full_name(user):
+            if not user:
+                return None
+            return f"{user.first_name or ''} {user.last_name or ''}".strip() or f"#{user.id}"
+
         return {
             "id": self.id,
             "match_id": self.match_id,
             "filled_by_id": self.filled_by_id,
+            "filled_by_name": _full_name(self.filled_by),
             "validated_by_id": self.validated_by_id,
+            "validated_by_name": _full_name(self.validated_by),
             "is_validated": self.is_validated,
             "notes": self.notes,
             "filled_at": self.filled_at.isoformat(),

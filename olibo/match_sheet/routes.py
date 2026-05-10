@@ -6,6 +6,7 @@ from olibo import db
 from olibo.common.enums import MatchStatus
 from olibo.common.helpers import get_authorized_user
 from olibo.competition.model import Competition
+from olibo.incident_report.model import IncidentReport
 from olibo.match_sheet.model import Match, MatchEvent, MatchSheet
 from olibo.ranking.model import Ranking
 from olibo.season.model import Season
@@ -14,10 +15,36 @@ from olibo.users.model import User
 
 match_sheet = Blueprint('match_sheet', __name__)
 
-VALID_EVENT_TYPES = {'goal', 'assist', 'yellow_card', 'red_card', 'substitution'}
+VALID_EVENT_TYPES    = {'goal', 'assist', 'yellow_card', 'red_card', 'substitution'}
+MATCH_NOT_FOUND      = 'Match not found'
+ADMIN_ROLES          = {'super_admin', 'admin_competition', 'operator'}
+EVENTS_INPROGRESS    = 'Events can only be managed for in-progress matches'
 
 # Fuseau horaire Afrique Centrale (WAT = UTC+1)
 WAT = timezone(timedelta(hours=1))
+
+
+def _sched_cam(dt):
+    """Convertit un datetime vers un aware Africa/Douala.
+    Les datetime naïfs sont considérés comme heure locale camerounaise (WAT)."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=WAT)
+    return dt.astimezone(WAT)
+
+
+def _auto_status(scheduled_date):
+    """Statut automatique basé sur l'heure camerounaise (WAT).
+    - Avant l'heure de début         → scheduled
+    - Après l'heure de début         → in_progress
+    - 2h après l'heure de début      → completed
+    cancelled et completed existants ne sont jamais touchés."""
+    now = datetime.now(WAT)
+    sched = _sched_cam(scheduled_date)
+    if now >= sched + timedelta(hours=2):
+        return MatchStatus.COMPLETED.value
+    if now >= sched:
+        return MatchStatus.IN_PROGRESS.value
+    return MatchStatus.SCHEDULED.value
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -90,15 +117,26 @@ def create_match():
 
         season_id = data.get('season_id') or competition.season_id
 
+        sched_aware = datetime.fromisoformat(data['scheduled_date'].replace('Z', '+00:00'))
+        # Normaliser en heure WAT naïve (heure locale camerounaise stockée en BD)
+        if sched_aware.tzinfo is not None:
+            sched_dt = sched_aware.astimezone(WAT).replace(tzinfo=None)
+        else:
+            sched_dt = sched_aware
+
+        if sched_dt <= datetime.now(WAT).replace(tzinfo=None):
+            return jsonify({'error': 'Impossible de créer un match à une date ou heure déjà passée.'}), 400
+
         match = Match(
             competition_id=data['competition_id'],
             season_id=season_id,
             home_team_id=data['home_team_id'],
             away_team_id=data['away_team_id'],
-            scheduled_date=datetime.fromisoformat(data['scheduled_date']),
+            scheduled_date=sched_dt,
             matchday=data.get('matchday'),
             location=data.get('location'),
             referee_id=data.get('referee_id'),
+            status=_auto_status(sched_dt),
         )
 
         db.session.add(match)
@@ -132,6 +170,49 @@ def get_all_matches():
 
         matches = query.all()
 
+        # Mise à jour réactive des statuts (heure camerounaise WAT) :
+        #   scheduled → in_progress  : heure de début atteinte (< 2h)
+        #   scheduled → completed    : 2h après le début sans clôture manuelle
+        #   in_progress → completed  : 2h après le début sans clôture manuelle
+        # cancelled et completed manuels ne sont jamais touchés.
+        now_cam = datetime.now(WAT)
+        ids_to_in_progress = []
+        ids_to_completed = []
+        for m in matches:
+            sched = _sched_cam(m.scheduled_date)
+            if m.status == MatchStatus.SCHEDULED.value:
+                if now_cam >= sched + timedelta(hours=2):
+                    ids_to_completed.append(m.id)
+                elif now_cam >= sched:
+                    ids_to_in_progress.append(m.id)
+            elif m.status == MatchStatus.IN_PROGRESS.value:
+                if now_cam >= sched + timedelta(hours=2):
+                    ids_to_completed.append(m.id)
+
+        if ids_to_in_progress or ids_to_completed:
+            try:
+                if ids_to_in_progress:
+                    Match.query.filter(Match.id.in_(ids_to_in_progress)).update(
+                        {'status': MatchStatus.IN_PROGRESS.value},
+                        synchronize_session=False,
+                    )
+                if ids_to_completed:
+                    Match.query.filter(Match.id.in_(ids_to_completed)).update(
+                        {'status': MatchStatus.COMPLETED.value},
+                        synchronize_session=False,
+                    )
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+            # Sync les objets en mémoire pour que la réponse soit immédiatement correcte
+            ip_set = set(ids_to_in_progress)
+            cp_set = set(ids_to_completed)
+            for m in matches:
+                if m.id in ip_set:
+                    m.status = MatchStatus.IN_PROGRESS.value
+                elif m.id in cp_set:
+                    m.status = MatchStatus.COMPLETED.value
+
         return jsonify({
             'message': 'Matches retrieved successfully',
             'total': len(matches),
@@ -151,7 +232,7 @@ def get_match(match_id):
         ).get(match_id)
 
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
         return jsonify({'message': 'Match retrieved successfully', 'match': match_full_dict(match)}), 200
 
@@ -170,10 +251,10 @@ def update_match(match_id):
 
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
-        if match.status == MatchStatus.COMPLETED.value:
-            return jsonify({'error': 'Cannot modify a completed match'}), 409
+        if match.status in (MatchStatus.COMPLETED.value, MatchStatus.CANCELLED.value):
+            return jsonify({'error': 'Cannot modify a completed or cancelled match'}), 409
 
         data = request.get_json()
 
@@ -439,15 +520,17 @@ def get_match_sheet(match_id):
     try:
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
-        sheet = MatchSheet.query.filter_by(match_id=match_id).first()
-        events = MatchEvent.query.filter_by(match_id=match_id).order_by(MatchEvent.minute).all()
+        sheet     = MatchSheet.query.filter_by(match_id=match_id).first()
+        events    = MatchEvent.query.filter_by(match_id=match_id).order_by(MatchEvent.minute).all()
+        incidents = IncidentReport.query.filter_by(match_id=match_id).order_by(IncidentReport.created_at.desc()).all()
 
         return jsonify({
-            'match': match.to_dict(),
-            'sheet': sheet.to_dict() if sheet else None,
-            'events': [e.to_dict() for e in events],
+            'match':     match.to_dict(),
+            'sheet':     sheet.to_dict() if sheet else None,
+            'events':    [e.to_dict() for e in events],
+            'incidents': [i.to_dict() for i in incidents],
         }), 200
 
     except Exception as e:
@@ -460,24 +543,28 @@ def fill_match_sheet(match_id):
     try:
         user = get_authorized_user()
 
-        if user.role not in ['referee', 'commissioner']:
-            return jsonify({'error': 'Only referees or commissioners can fill match sheets'}), 403
+        ALLOWED = {'referee', 'commissioner', 'super_admin', 'admin_competition', 'operator'}
+        if user.role not in ALLOWED:
+            return jsonify({'error': 'Unauthorized'}), 403
 
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        if match.status in (MatchStatus.COMPLETED.value, MatchStatus.CANCELLED.value):
+            return jsonify({'error': 'Cannot modify sheet for a completed or cancelled match'}), 409
 
         data = request.get_json()
 
-        existing_sheet = MatchSheet.query.filter_by(match_id=match_id).first()
+        if ('home_team_goals' in data or 'away_team_goals' in data) and match.status != MatchStatus.IN_PROGRESS.value:
+            return jsonify({'error': 'Score can only be modified for in-progress matches'}), 409
 
-        if existing_sheet and existing_sheet.is_validated:
-            return jsonify({'error': 'Match sheet is already validated and cannot be modified'}), 409
+        existing_sheet = MatchSheet.query.filter_by(match_id=match_id).first()
 
         if existing_sheet:
             existing_sheet.filled_by_id = user.id
             existing_sheet.notes = data.get('notes')
-            existing_sheet.filled_at = datetime.utcnow()
+            existing_sheet.filled_at = datetime.now(timezone.utc)
             sheet = existing_sheet
         else:
             sheet = MatchSheet(
@@ -487,12 +574,10 @@ def fill_match_sheet(match_id):
             )
             db.session.add(sheet)
 
-        if 'home_team_goals' in data:
+        if 'home_team_goals' in data and data['home_team_goals'] is not None:
             match.home_team_goals = data['home_team_goals']
-        if 'away_team_goals' in data:
+        if 'away_team_goals' in data and data['away_team_goals'] is not None:
             match.away_team_goals = data['away_team_goals']
-
-        match.status = MatchStatus.IN_PROGRESS.value
 
         db.session.commit()
 
@@ -500,6 +585,95 @@ def fill_match_sheet(match_id):
 
     except Exception as e:
         db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@match_sheet.route('/matches/<int:match_id>', methods=['DELETE'])
+@jwt_required()
+def delete_match(match_id):
+    try:
+        user = get_authorized_user()
+
+        if user.role not in ADMIN_ROLES:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        match = Match.query.get(match_id)
+        if not match:
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        if match.status != MatchStatus.SCHEDULED.value:
+            return jsonify({'error': 'Only scheduled matches can be deleted'}), 409
+
+        if MatchSheet.query.filter_by(match_id=match_id).first():
+            return jsonify({'error': 'Cannot delete a match that already has a sheet'}), 409
+
+        db.session.delete(match)
+        db.session.commit()
+
+        return '', 204
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@match_sheet.route('/matches/<int:match_id>/cancel', methods=['POST'])
+@jwt_required()
+def cancel_match(match_id):
+    try:
+        user = get_authorized_user()
+
+        if user.role not in ADMIN_ROLES:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        match = Match.query.get(match_id)
+        if not match:
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        if match.status not in (MatchStatus.SCHEDULED.value, MatchStatus.IN_PROGRESS.value):
+            return jsonify({'error': 'Only scheduled or in-progress matches can be cancelled'}), 409
+
+        data = request.get_json() or {}
+        reason = data.get('reason', '').strip()
+        if not reason:
+            return jsonify({'error': 'A cancellation reason is required'}), 400
+
+        match.status = MatchStatus.CANCELLED.value
+
+        report = IncidentReport(
+            match_id=match_id,
+            reporter_id=user.id,
+            incident_type='match_cancellation',
+            description=reason,
+            severity='high',
+        )
+        db.session.add(report)
+        db.session.commit()
+
+        return jsonify({'message': 'Match cancelled successfully', 'match': match.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
+@match_sheet.route('/matches/<int:match_id>/incidents', methods=['GET'])
+@jwt_required()
+def get_match_incidents(match_id):
+    try:
+        if not Match.query.get(match_id):
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        incidents = IncidentReport.query.filter_by(match_id=match_id)\
+            .order_by(IncidentReport.created_at.desc()).all()
+
+        return jsonify({
+            'message': 'Incidents retrieved successfully',
+            'total': len(incidents),
+            'incidents': [i.to_dict() for i in incidents],
+        }), 200
+
+    except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
@@ -518,7 +692,7 @@ def validate_match_sheet(match_id):
 
         sheet.is_validated = True
         sheet.validated_by_id = user.id
-        sheet.validated_at = datetime.utcnow()
+        sheet.validated_at = datetime.now(timezone.utc)
 
         db.session.commit()
 
@@ -545,7 +719,7 @@ def close_match(match_id):
 
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
         if match.status != MatchStatus.IN_PROGRESS.value:
             return jsonify({'error': 'Match is not in progress'}), 400
@@ -574,12 +748,16 @@ def add_match_event(match_id):
     try:
         user = get_authorized_user()
 
-        if user.role not in ['referee', 'commissioner']:
+        ALLOWED = {'referee', 'commissioner', 'super_admin', 'admin_competition', 'operator'}
+        if user.role not in ALLOWED:
             return jsonify({'error': 'Unauthorized'}), 403
 
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        if match.status != MatchStatus.IN_PROGRESS.value:
+            return jsonify({'error': EVENTS_INPROGRESS}), 409
 
         data = request.get_json()
 
@@ -592,10 +770,6 @@ def add_match_event(match_id):
         minute = data['minute']
         if not isinstance(minute, int) or minute < 0 or minute > 130:
             return jsonify({'error': 'Minute must be an integer between 0 and 130'}), 400
-
-        sheet = MatchSheet.query.filter_by(match_id=match_id).first()
-        if sheet and sheet.is_validated:
-            return jsonify({'error': 'Match sheet is already validated and cannot be modified'}), 409
 
         member = TeamMember.query.get(data['member_id'])
 
@@ -630,7 +804,7 @@ def get_match_events(match_id):
     try:
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
         events = MatchEvent.query.filter_by(match_id=match_id).order_by(MatchEvent.minute).all()
 
@@ -644,22 +818,75 @@ def get_match_events(match_id):
         return jsonify({'error': str(e)}), 500
 
 
+@match_sheet.route('/matches/<int:match_id>/events/<int:event_id>', methods=['PUT'])
+@jwt_required()
+def update_match_event(match_id, event_id):
+    try:
+        user = get_authorized_user()
+
+        if user.role not in ADMIN_ROLES:
+            return jsonify({'error': 'Unauthorized'}), 403
+
+        match = Match.query.get(match_id)
+        if not match:
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
+
+        if match.status != MatchStatus.IN_PROGRESS.value:
+            return jsonify({'error': EVENTS_INPROGRESS}), 409
+
+        event = MatchEvent.query.filter_by(id=event_id, match_id=match_id).first()
+        if not event:
+            return jsonify({'error': 'Event not found'}), 404
+
+        data = request.get_json()
+
+        if 'event_type' in data:
+            if data['event_type'] not in VALID_EVENT_TYPES:
+                return jsonify({'error': f"Invalid event_type. Allowed: {list(VALID_EVENT_TYPES)}"}), 400
+            event.event_type = data['event_type']
+
+        if 'minute' in data:
+            minute = data['minute']
+            if not isinstance(minute, int) or minute < 0 or minute > 130:
+                return jsonify({'error': 'Minute must be an integer between 0 and 130'}), 400
+            event.minute = minute
+
+        if 'member_id' in data:
+            member = TeamMember.query.get(data['member_id'])
+            if not member or member.team_id not in (match.home_team_id, match.away_team_id):
+                return jsonify({'error': 'Member not part of this match'}), 404
+            event.member_id = data['member_id']
+
+        if 'card_type' in data:
+            event.card_type = data['card_type']
+
+        if 'notes' in data:
+            event.notes = data['notes']
+
+        db.session.commit()
+
+        return jsonify({'message': 'Event updated successfully', 'event': event.to_dict()}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 500
+
+
 @match_sheet.route('/matches/<int:match_id>/events/<int:event_id>', methods=['DELETE'])
 @jwt_required()
 def delete_match_event(match_id, event_id):
     try:
         user = get_authorized_user()
 
-        if user.role not in ['referee', 'commissioner', 'super_admin', 'admin_competition']:
+        if user.role not in ADMIN_ROLES:
             return jsonify({'error': 'Unauthorized'}), 403
 
         match = Match.query.get(match_id)
         if not match:
-            return jsonify({'error': 'Match not found'}), 404
+            return jsonify({'error': MATCH_NOT_FOUND}), 404
 
-        sheet = MatchSheet.query.filter_by(match_id=match_id).first()
-        if sheet and sheet.is_validated:
-            return jsonify({'error': 'Match sheet is validated, events cannot be deleted'}), 409
+        if match.status != MatchStatus.IN_PROGRESS.value:
+            return jsonify({'error': EVENTS_INPROGRESS}), 409
 
         event = MatchEvent.query.filter_by(id=event_id, match_id=match_id).first()
         if not event:
