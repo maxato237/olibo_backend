@@ -25,7 +25,6 @@ limiter = Limiter(
 )
 
 def _normalize_db_url(url: str) -> str:
-    """Force le schéma postgresql+psycopg2:// pour éviter toute ambiguïté de dialecte."""
     for prefix in ('postgres://', 'postgresql://'):
         if url.startswith(prefix):
             return 'postgresql+psycopg2://' + url[len(prefix):]
