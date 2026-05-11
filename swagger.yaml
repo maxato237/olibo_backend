@@ -33,10 +33,11 @@ info:
   license:
     name: Propriétaire
 
-host: "127.0.0.1:8000"
+# host: "127.0.0.1:8000"
+host: "olibobackend-2skqb.sevalla.app"
 basePath: "/"
 schemes:
-  - http
+  - https
 
 consumes:
   - application/json
