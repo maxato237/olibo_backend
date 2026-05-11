@@ -1,5 +1,5 @@
-from datetime import datetime
-from flask import Blueprint, request, jsonify
+from datetime import datetime, timezone
+from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from werkzeug.security import generate_password_hash, check_password_hash
 from olibo import db
@@ -8,6 +8,8 @@ from olibo.common.helpers import get_authorized_user
 from olibo.users.model import User
 
 users = Blueprint('users', __name__)
+
+INTERNAL_ERROR_MSG = 'An internal error occurred'
 
 
 # ==========================================
@@ -54,7 +56,8 @@ def create_user():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('', methods=['GET'])
@@ -89,7 +92,8 @@ def get_all_users():
         }), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('/<int:user_id>', methods=['GET'])
@@ -101,7 +105,7 @@ def get_user(user_id):
         if current_user.id != user_id and current_user.role not in ['super_admin', 'admin_competition', 'team_manager']:
             return jsonify({'error': 'Unauthorized'}), 403
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -109,7 +113,8 @@ def get_user(user_id):
         return jsonify({'message': 'User retrieved successfully', 'user': user.to_dict()}), 200
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('/<int:user_id>', methods=['PUT'])
@@ -117,7 +122,7 @@ def get_user(user_id):
 def update_user(user_id):
     try:
         current_user = get_authorized_user()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -152,14 +157,15 @@ def update_user(user_id):
         if 'is_active' in data and current_user.role == 'super_admin':
             user.is_active = data['is_active']
 
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
         return jsonify({'message': 'User updated successfully', 'user': user.to_dict()}), 200
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('/<int:user_id>', methods=['DELETE'])
@@ -171,7 +177,7 @@ def delete_user(user_id):
         if current_user.role != 'super_admin':
             return jsonify({'error': 'Only super admin can delete users'}), 403
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -185,7 +191,8 @@ def delete_user(user_id):
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('/<int:user_id>/deactivate', methods=['POST'])
@@ -197,7 +204,7 @@ def deactivate_user(user_id):
         if current_user.role != 'super_admin':
             return jsonify({'error': 'Only super admin can deactivate users'}), 403
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -205,14 +212,15 @@ def deactivate_user(user_id):
             return jsonify({'error': 'You cannot deactivate your own account'}), 400
 
         user.is_active = False
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
         return jsonify({'message': 'User deactivated successfully', 'user': user.to_dict()}), 200
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 @users.route('/<int:user_id>/activate', methods=['POST'])
@@ -224,16 +232,17 @@ def activate_user(user_id):
         if current_user.role != 'super_admin':
             return jsonify({'error': 'Only super admin can activate users'}), 403
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
         user.is_active = True
-        user.updated_at = datetime.utcnow()
+        user.updated_at = datetime.now(timezone.utc)
         db.session.commit()
 
         return jsonify({'message': 'User activated successfully', 'user': user.to_dict()}), 200
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500

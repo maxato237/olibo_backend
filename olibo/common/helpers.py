@@ -1,11 +1,12 @@
 from functools import wraps
 from flask import jsonify
 from flask_jwt_extended import get_jwt_identity
+from olibo import db
 from olibo.users.model import User
 
 
 def get_authorized_user():
-    return User.query.get(get_jwt_identity())
+    return db.session.get(User, get_jwt_identity())
 
 
 def require_roles(*roles):

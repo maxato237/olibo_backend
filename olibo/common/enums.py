@@ -5,14 +5,10 @@ class UserRole(Enum):
     SUPER_ADMIN = "super_admin"
     ADMIN_COMPETITION = "admin_competition"
     OPERATOR = "operator"
-    # REFEREE = "referee"
-    # COMMISSIONER = "commissioner"
-    # TEAM_CAPTAIN = "team_captain"
+    TEAM_CAPTAIN = "team_captain"
     TEAM_MANAGER = "team_manager"
-    # COACH = "coach"
-    # PLAYER = "player"
-    # SPECTATOR = "spectator"
-    # JOURNALIST = "journalist"
+    COACH = "coach"
+    SPECTATOR = "spectator"
 
 
 class RegistrationStatus(Enum):
@@ -128,10 +124,9 @@ PAYMENT_TYPE_LABELS_FR = {
 }
 
 
-def get_label_fr(labels_dict: dict, value) -> str:
-    """Retourne le label FR d'une valeur d'enum, ou la valeur elle-même si inconnue."""
+def get_label_fr(labels_dict: dict[str, str], value: str | None) -> str:
     if value is None:
-        return None
+        return ''
     return labels_dict.get(value, value)
 
 

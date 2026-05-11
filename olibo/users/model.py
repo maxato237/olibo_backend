@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from olibo import db
 from olibo.common.enums import ROLE_LABELS_FR
 
@@ -14,8 +14,8 @@ class User(db.Model):
     phone = db.Column(db.String(20))
     role = db.Column(db.String(50), nullable=False)  # Utilise UserRole.value
     is_active = db.Column(db.Boolean, default=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relations
     team_representative_of = db.relationship('Team', backref='representative', foreign_keys='Team.representative_id', uselist=False)

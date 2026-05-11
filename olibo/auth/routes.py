@@ -1,7 +1,7 @@
 from olibo.auth.model import Token
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import re
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, current_app
 from flask_jwt_extended import (
     create_access_token, create_refresh_token,
     get_jwt_identity, jwt_required
@@ -12,6 +12,9 @@ from olibo.users.model import User
 from werkzeug.security import generate_password_hash, check_password_hash
 
 auth = Blueprint('auth', __name__)
+
+ALLOWED_SELF_REGISTER_ROLES = ['team_captain', 'team_manager', 'coach', 'spectator']
+INTERNAL_ERROR_MSG = 'An internal error occurred'
 
 
 def is_valid_email(email):
@@ -50,7 +53,6 @@ def register():
         if data['role'] not in valid_roles:
             return jsonify({'error': f'Invalid role. Allowed: {valid_roles}'}), 400
 
-        ALLOWED_SELF_REGISTER_ROLES = ['team_captain', 'team_manager', 'coach', 'spectator']
         if data['role'] not in ALLOWED_SELF_REGISTER_ROLES:
             return jsonify({'error': 'Invalid role for self-registration. Allowed: team_captain, team_manager, coach, spectator'}), 403
 
@@ -76,7 +78,8 @@ def register():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 # Login — limité à 5 tentatives par minute
@@ -104,7 +107,7 @@ def login():
         db.session.add(Token(
             user_id=user.id,
             token=refresh_token,
-            expires_at=datetime.utcnow() + timedelta(days=30)
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30)
         ))
         db.session.commit()
 
@@ -117,7 +120,8 @@ def login():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 # Logout
@@ -126,7 +130,7 @@ def login():
 def logout():
     try:
         user_id = get_jwt_identity()
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
 
         if not user:
             return jsonify({'error': 'User not found'}), 404
@@ -138,7 +142,8 @@ def logout():
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 # Refresh — valide contre la DB et effectue une rotation du token
@@ -152,10 +157,10 @@ def refresh_token():
         incoming = request.headers.get('Authorization', '').removeprefix('Bearer ').strip()
 
         token_record = Token.query.filter_by(user_id=user_id, token=incoming).first()
-        if not token_record or token_record.expires_at < datetime.utcnow():
+        if not token_record or token_record.expires_at < datetime.now(timezone.utc):
             return jsonify({'error': 'Refresh token invalide ou expiré'}), 401
 
-        user = User.query.get(user_id)
+        user = db.session.get(User, user_id)
         if not user:
             return jsonify({'error': 'User not found'}), 404
 
@@ -163,14 +168,15 @@ def refresh_token():
 
         # Rotation : remplacer l'ancien refresh token
         token_record.token = new_refresh
-        token_record.expires_at = datetime.utcnow() + timedelta(days=30)
+        token_record.expires_at = datetime.now(timezone.utc) + timedelta(days=30)
         db.session.commit()
 
         return jsonify({'access_token': access_token, 'refresh_token': new_refresh}), 200
 
     except Exception as e:
         db.session.rollback()
-        return jsonify({'error': str(e)}), 500
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
 
 
 # Profil de l'utilisateur connecté
@@ -178,11 +184,54 @@ def refresh_token():
 @jwt_required()
 def get_me():
     try:
-        user = User.query.get(get_jwt_identity())
+        user = db.session.get(User, get_jwt_identity())
         if not user:
             return jsonify({'error': 'User not found'}), 404
         return jsonify({'user': user.to_dict()}), 200
     except Exception as e:
+        current_app.logger.exception(e)
+        return jsonify({'error': INTERNAL_ERROR_MSG}), 500
+
+
+@auth.route('/setup-superadmin', methods=['POST'])
+def setup_superadmin():
+    try:
+        if User.query.filter_by(role='super_admin').first():
+            return jsonify({'error': 'Super admin already exists'}), 403
+
+        data = request.get_json()
+
+        if not data or not all(k in data for k in ['email', 'password', 'first_name', 'last_name']):
+            return jsonify({'error': 'Missing required fields'}), 400
+
+        if not is_valid_email(data['email']):
+            return jsonify({'error': 'Invalid email format'}), 400
+
+        if len(data['password']) < 8:
+            return jsonify({'error': 'Password must be at least 8 characters'}), 400
+
+        if User.query.filter_by(email=data['email']).first():
+            return jsonify({'error': 'Email already exists'}), 409
+
+        user = User(
+            email=data['email'],
+            password_hash=generate_password_hash(data['password']),
+            first_name=data['first_name'],
+            last_name=data['last_name'],
+            phone=data.get('phone'),
+            role='super_admin'
+        )
+
+        db.session.add(user)
+        db.session.commit()
+
+        return jsonify({
+            'message': 'Super admin created successfully',
+            'user': user.to_dict()
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
         return jsonify({'error': str(e)}), 500
 
 
