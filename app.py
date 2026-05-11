@@ -3,13 +3,6 @@ from olibo import create_app
 
 app = create_app()
 
-@app.route('/', methods=['GET'])
-def index():
-    return "Welcome to Olibo API"
-
-@app.route("/test")
-def test():
-    return "API is running"
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', debug=False, port=8000)

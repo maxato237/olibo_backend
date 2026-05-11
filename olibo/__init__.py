@@ -133,6 +133,10 @@ def create_app(config_class=None):
         app.register_blueprint(enum, url_prefix='/api/enum')
         app.register_blueprint(article, url_prefix='/api/article')
 
+        @app.route("/", methods=['GET'])
+        def test():
+            return "API is running"
+
         swagger_path = os.path.join(os.path.dirname(app.root_path), 'swagger.yaml')
         with open(swagger_path, 'r', encoding='utf-8') as f:
             swagger_template = yaml.safe_load(f)
