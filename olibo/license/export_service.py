@@ -65,7 +65,7 @@ class LicenseExportService:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(viewport=_VIEWPORT)
-            page.goto(url, wait_until='networkidle')
+            page.goto(url, wait_until='domcontentloaded', timeout=60000)
             page.wait_for_selector(_CARD_SELECTOR)
             rect = page.evaluate(_BBOX_JS)
             png_bytes = page.screenshot(clip=rect)
@@ -110,7 +110,7 @@ class LicenseExportService:
                     for side in ('recto', 'verso'):
                         page = browser.new_page(viewport=_VIEWPORT)
                         url = url_for('license_render.render_license', license_id=lic.id, side=side, _external=True)
-                        page.goto(url, wait_until='networkidle')
+                        page.goto(url, wait_until='domcontentloaded', timeout=60000)
                         page.wait_for_selector(_CARD_SELECTOR)
                         rect = page.evaluate(_BBOX_JS)
                         png_bytes = page.screenshot(clip=rect)
