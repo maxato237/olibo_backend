@@ -35,6 +35,9 @@ mistune==3.2.0
 oauthlib==3.3.1
 ordered-set==4.1.0
 packaging==26.2
+Pillow==12.2.0
+playwright==1.59.0
+pyee==13.0.1
 proto-plus==1.27.1
 protobuf==6.33.5
 psycopg2==2.9.11

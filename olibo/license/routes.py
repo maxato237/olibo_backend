@@ -491,7 +491,7 @@ def renew_license(license_id):
 @license.route('/<int:license_id>/export', methods=['GET'])
 @jwt_required()
 def export_license(license_id):
-    try:
+    # try:
         user = get_authorized_user()
         if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
@@ -510,14 +510,14 @@ def export_license(license_id):
         )
         return response
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
 
 
 @license.route('/team/<int:team_id>/export', methods=['GET'])
 @jwt_required()
 def export_team_licenses(team_id):
-    try:
+    # try:
         user = get_authorized_user()
         if user.role not in ['super_admin', 'admin_competition']:
             return jsonify({'error': 'Unauthorized'}), 403
@@ -537,8 +537,8 @@ def export_team_licenses(team_id):
         )
         return response
 
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    # except Exception as e:
+    #     return jsonify({'error': str(e)}), 500
 
 
 @license.route('/<int:license_id>', methods=['DELETE'])

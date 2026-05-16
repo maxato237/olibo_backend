@@ -76,12 +76,15 @@ def create_app(config_class=None):
 
     # 4. CORS
     _cors_env = os.environ.get('CORS_ORIGINS', 'http://localhost:4200')
-    _cors_origins = [o.strip() for o in _cors_env.split(',')]
+    _cors_origins = [o.strip().rstrip('/') for o in _cors_env.split(',') if o.strip()]
     CORS(app,
-         resources={r"/api/*": {"origins": _cors_origins}},
-         supports_credentials=True,
-         expose_headers=["Content-Type", "Authorization"],
-         allow_headers=["Content-Type", "Authorization", "X-Requested-With"]
+         resources={r"/api/*": {
+             "origins": _cors_origins,
+             "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+             "expose_headers": ["Content-Type", "Authorization"],
+             "supports_credentials": True,
+             "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+         }}
     )
 
     # 5. Cloudinary

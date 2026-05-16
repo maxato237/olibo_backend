@@ -69,11 +69,6 @@ def create_users():
     roles_list = [
         'super_admin',
         'admin_competition',
-        'operator',
-        'referee',
-        'commissioner',
-        'team_manager',
-        'coach',
     ]
 
     # Préfixe téléphone Cameroun
